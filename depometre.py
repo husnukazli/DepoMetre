@@ -6,18 +6,17 @@ import uuid
 from fpdf import FPDF
 
 # ==========================================
-# FONKSİYONLAR (Sola tam dayalı - Boşluksuz)
+# FONKSİYONLAR
 # ==========================================
 def create_pdf(sepet_verisi, toplam):
     pdf = FPDF()
     pdf.add_page()
     
-    # Font Yükleme (GitHub'a eklenen arial.ttf üzerinden)
     if os.path.exists("arial.ttf"):
         pdf.add_font("ArialTR", "", "arial.ttf", uni=True)
         pdf.set_font("ArialTR", "", 16)
     else:
-        pdf.set_font("Arial", "B", 16) # Fallback
+        pdf.set_font("Arial", "B", 16)
         
     pdf.cell(0, 10, txt="Soguk Hava Deposu Konfigurasyon Ozeti", ln=True, align='C')
     pdf.ln(10)
@@ -27,12 +26,10 @@ def create_pdf(sepet_verisi, toplam):
     else:
         pdf.set_font("Arial", "", 12)
         
-    # Başlıklar
     pdf.cell(50, 10, txt="Kategori", border=1)
     pdf.cell(100, 10, txt="Marka / Model", border=1)
     pdf.cell(40, 10, txt="Fiyat (TL)", border=1, ln=True)
     
-    # Ürünler
     for index, row in sepet_verisi.iterrows():
         pdf.cell(50, 10, txt=str(row['Kategori']), border=1)
         pdf.cell(100, 10, txt=str(row['Marka/Model']), border=1)
@@ -45,10 +42,8 @@ def create_pdf(sepet_verisi, toplam):
         pdf.set_font("Arial", "B", 14)
         
     pdf.cell(0, 10, txt=f"Genel Toplam: {toplam:,.2f} TL", ln=True, align='R')
-    
     return bytes(pdf.output())
 
-# Sepetten Ürün Silme Geri Çağırımı (Callback)
 def sepetten_cikar(uid):
     st.session_state['sepet'] = [item for item in st.session_state['sepet'] if item.get('sepet_id') != uid]
 
@@ -71,7 +66,7 @@ if 'sepet' not in st.session_state:
     st.session_state['sepet'] = []
 
 st.title("❄️ Soğuk Hava Deposu Konfigüratörü")
-st.write("Depo ölçülerinizi girerek akıllı kapasite hesaplamalarından yararlanın ve sisteminizi oluşturun.")
+st.write("Depo ölçülerinizi girerek net kapasite hesaplamalarından yararlanın ve sisteminizi oluşturun.")
 
 # VERİTABANI ÖN YÜKLEME
 try:
@@ -94,7 +89,6 @@ if veriler_tamam:
         with col2: boy = st.number_input("Boy (Metre)", min_value=1.0, value=4.0, step=0.5)
         with col3: yukseklik = st.number_input("Yükseklik (Metre)", min_value=1.0, value=2.5, step=0.5)
             
-        # Geometrik Hesaplamalar
         hacim = en * boy * yukseklik
         zemin_alani = en * boy
         toplam_yuzey_alani = (2 * zemin_alani) + (2 * en * yukseklik) + (2 * boy * yukseklik)
@@ -105,31 +99,33 @@ if veriler_tamam:
         
         st.info(f"**Toplam Hacim:** {hacim:.2f} m³ | **Zemin:** {zemin_alani:.2f} m² | **Toplam İzolasyon Yüzeyi:** {toplam_yuzey_alani:.2f} m² \n\n **Hesaplanan İhtiyaç:** {gerekli_btu:,} BTU/h")
 
-        # --- AKILLI KOMPRESÖR KOMBİNASYON ÖNERİSİ ---
+        # --- YENİLENEN MANTIKLI KOMPRESÖR ÖNERİSİ ---
         komp_kategori_id = next((k["id"] for k in kategoriler_db if "Kompresör" in k["kategori_adi"]), None)
         if komp_kategori_id:
-            kompresorler = sorted([p for p in parcalar_db if p["kategori_id"] == komp_kategori_id], key=lambda x: x["btu_kapasite"], reverse=True)
+            kompresorler = sorted([p for p in parcalar_db if p["kategori_id"] == komp_kategori_id and p["btu_kapasite"] > 0], key=lambda x: x["btu_kapasite"])
             
-            kalan_btu = gerekli_btu
-            kombinasyon_sonucu = {}
-            
-            for komp in kompresorler:
-                if komp["btu_kapasite"] > 0:
-                    adet = kalan_btu // komp["btu_kapasite"]
-                    if adet > 0:
-                        marka_ad = next((m["marka_adi"] for m in markalar_db if m["id"] == komp["marka_id"]), "")
-                        isim = f"{marka_ad} - {komp['model_adi']} ({komp['btu_kapasite']:,} BTU)"
-                        kombinasyon_sonucu[isim] = adet
-                        kalan_btu = kalan_btu % komp["btu_kapasite"]
-                        
-            if kalan_btu > 0 and kompresorler:
-                en_kucuk = kompresorler[-1]
-                marka_ad = next((m["marka_adi"] for m in markalar_db if m["id"] == en_kucuk["marka_id"]), "")
-                isim = f"{marka_ad} - {en_kucuk['model_adi']} ({en_kucuk['btu_kapasite']:,} BTU)"
-                kombinasyon_sonucu[isim] = kombinasyon_sonucu.get(isim, 0) + 1
+            if kompresorler:
+                en_iyi_secim = None
+                en_az_fazla = float('inf')
                 
-            onerilen_metin = " + ".join([f"{adet} Adet {isim}" for isim, adet in kombinasyon_sonucu.items()])
-            st.success(f"💡 **İhtiyacınıza Yönelik Otomatik Kombinasyon Önerisi:** {onerilen_metin}")
+                # Mevcut veritabanındaki kompresörlerden 1 veya 2 adet seçerek gereksinimi karşılayan en mantıklı modeli buluyoruz
+                for komp in kompresorler:
+                    for adet in [1, 2]:
+                        toplam_kapasite = adet * komp["btu_kapasite"]
+                        if toplam_kapasite >= gerekli_btu:
+                            fazla = toplam_kapasite - gerekli_btu
+                            if fazla < en_az_fazla:
+                                en_az_fazla = fazla
+                                en_iyi_secim = (komp, adet)
+                
+                # Eğer tablodaki en büyük cihazların 2 tanesi bile yetmiyorsa en büyüğünden 2 adet öner
+                if not en_iyi_secim:
+                    en_iyi_secim = (kompresorler[-1], 2)
+                    
+                komp, adet = en_iyi_secim
+                marka_ad = next((m["marka_adi"] for m in markalar_db if m["id"] == komp["marka_id"]), "")
+                toplam_sunulan = komp['btu_kapasite'] * adet
+                st.success(f"💡 **Önerilen Kompresör Seçimi:** {adet} Adet **{marka_ad} - {komp['model_adi']}** ({komp['btu_kapasite']:,} BTU x {adet} = {toplam_sunulan:,} BTU)")
 
     st.divider()
 
@@ -187,7 +183,6 @@ if veriler_tamam:
 
     if st.session_state['sepet']:
         for item in st.session_state['sepet']:
-            # Emniyet kilidi: Eski sepet kalıntılarında id yoksa otomatik ekle
             if 'sepet_id' not in item:
                 item['sepet_id'] = str(uuid.uuid4())
                 
