@@ -12,11 +12,12 @@ def create_pdf(sepet_verisi, toplam):
     pdf = FPDF()
     pdf.add_page()
     
+    # Font Yükleme (GitHub'a eklenen arial.ttf üzerinden)
     if os.path.exists("arial.ttf"):
         pdf.add_font("ArialTR", "", "arial.ttf", uni=True)
         pdf.set_font("ArialTR", "", 16)
     else:
-        pdf.set_font("Arial", "B", 16)
+        pdf.set_font("Arial", "B", 16) # Fallback
         
     pdf.cell(0, 10, txt="Soguk Hava Deposu Konfigurasyon Ozeti", ln=True, align='C')
     pdf.ln(10)
@@ -26,10 +27,12 @@ def create_pdf(sepet_verisi, toplam):
     else:
         pdf.set_font("Arial", "", 12)
         
+    # Başlıklar
     pdf.cell(50, 10, txt="Kategori", border=1)
     pdf.cell(100, 10, txt="Marka / Model", border=1)
     pdf.cell(40, 10, txt="Fiyat (TL)", border=1, ln=True)
     
+    # Ürünler
     for index, row in sepet_verisi.iterrows():
         pdf.cell(50, 10, txt=str(row['Kategori']), border=1)
         pdf.cell(100, 10, txt=str(row['Marka/Model']), border=1)
@@ -42,11 +45,12 @@ def create_pdf(sepet_verisi, toplam):
         pdf.set_font("Arial", "B", 14)
         
     pdf.cell(0, 10, txt=f"Genel Toplam: {toplam:,.2f} TL", ln=True, align='R')
+    
     return bytes(pdf.output())
 
 # Sepetten Ürün Silme Geri Çağırımı (Callback)
 def sepetten_cikar(uid):
-    st.session_state['sepet'] = [item for item in st.session_state['sepet'] if item['sepet_id'] != uid]
+    st.session_state['sepet'] = [item for item in st.session_state['sepet'] if item.get('sepet_id') != uid]
 
 # --- SUPABASE BAĞLANTISI ---
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -69,7 +73,7 @@ if 'sepet' not in st.session_state:
 st.title("❄️ Soğuk Hava Deposu Konfigüratörü")
 st.write("Depo ölçülerinizi girerek akıllı kapasite hesaplamalarından yararlanın ve sisteminizi oluşturun.")
 
-# VERİTABANI ÖN YÜKLEME (Tavsiye motoru için verileri en başta çekiyoruz)
+# VERİTABANI ÖN YÜKLEME
 try:
     kategoriler_db = supabase.table("kategoriler").select("*").execute().data
     markalar_db = supabase.table("markalar").select("*").execute().data
@@ -93,7 +97,7 @@ if veriler_tamam:
         # Geometrik Hesaplamalar
         hacim = en * boy * yukseklik
         zemin_alani = en * boy
-        toplam_yuzey_alani = (2 * zemin_alani) + (2 * en * yukseklik) + (2 * boy * yukseklik) # Zemin, Tavan ve 4 Duvar
+        toplam_yuzey_alani = (2 * zemin_alani) + (2 * en * yukseklik) + (2 * boy * yukseklik)
         
         hedef_sicaklik = st.selectbox("Hedef Depo Sıcaklığı", ["+4 Derece (Soğuk)", "-18 Derece (Donuk)"])
         btu_carpan = 350 if hedef_sicaklik == "+4 Derece (Soğuk)" else 550
@@ -104,7 +108,6 @@ if veriler_tamam:
         # --- AKILLI KOMPRESÖR KOMBİNASYON ÖNERİSİ ---
         komp_kategori_id = next((k["id"] for k in kategoriler_db if "Kompresör" in k["kategori_adi"]), None)
         if komp_kategori_id:
-            # Kompresörleri al ve BTU'ya göre büyükten küçüğe sırala
             kompresorler = sorted([p for p in parcalar_db if p["kategori_id"] == komp_kategori_id], key=lambda x: x["btu_kapasite"], reverse=True)
             
             kalan_btu = gerekli_btu
@@ -119,7 +122,6 @@ if veriler_tamam:
                         kombinasyon_sonucu[isim] = adet
                         kalan_btu = kalan_btu % komp["btu_kapasite"]
                         
-            # Hala ufak bir BTU açığı kaldıysa en küçük cihazdan 1 tane ekleyerek sistemi güvenceye al
             if kalan_btu > 0 and kompresorler:
                 en_kucuk = kompresorler[-1]
                 marka_ad = next((m["marka_adi"] for m in markalar_db if m["id"] == en_kucuk["marka_id"]), "")
@@ -149,16 +151,13 @@ if veriler_tamam:
                 for parca in uygun_parcalar:
                     marka_adi = next((m["marka_adi"] for m in markalar_db if m["id"] == parca["marka_id"]), "Bilinmiyor")
                     
-                    # Dinamik Fiyat ve Tavsiye Mantığı
                     gosterilecek_fiyat = float(parca['fiyat'])
                     tavsiye_etiketi = ""
                     
-                    # Kural 1: Panel ise metrekare ile çarp
                     if "Panel" in kategori_adi:
                         gosterilecek_fiyat = float(parca['fiyat']) * toplam_yuzey_alani
                         tavsiye_etiketi = f"*(Toplam {toplam_yuzey_alani:.2f} m² için hesaplanmıştır)*"
                         
-                    # Kural 2: Zemin alanına göre kapı önerisi
                     if "Kapı" in kategori_adi:
                         if (zemin_alani > 20 and "Sürgülü" in parca['model_adi']) or (zemin_alani <= 20 and "Menteşeli" in parca['model_adi']):
                             tavsiye_etiketi = "💡 **(Alanınıza Göre Tavsiye Edilir)**"
@@ -170,7 +169,7 @@ if veriler_tamam:
                     
                     if p_col4.button("Sepete Ekle", key=f"ekle_{parca['id']}"):
                         st.session_state['sepet'].append({
-                            "sepet_id": str(uuid.uuid4()), # Silme işlemi için benzersiz ID
+                            "sepet_id": str(uuid.uuid4()),
                             "Kategori": kategori_adi,
                             "Marka/Model": f"{marka_adi} - {parca['model_adi']}",
                             "Fiyat": gosterilecek_fiyat
@@ -187,8 +186,11 @@ if veriler_tamam:
     st.header("3. Konfigürasyon Özeti")
 
     if st.session_state['sepet']:
-        # Görsel Sepet Tablosu (Silme Butonlu)
         for item in st.session_state['sepet']:
+            # Emniyet kilidi: Eski sepet kalıntılarında id yoksa otomatik ekle
+            if 'sepet_id' not in item:
+                item['sepet_id'] = str(uuid.uuid4())
+                
             s_col1, s_col2, s_col3, s_col4 = st.columns([3, 4, 3, 2])
             s_col1.write(item['Kategori'])
             s_col2.write(item['Marka/Model'])
@@ -197,7 +199,6 @@ if veriler_tamam:
             
         st.write("---")
         
-        # DataFrame Çevirimi (PDF için gerekli)
         df_sepet = pd.DataFrame(st.session_state['sepet'])
         toplam_tutar = df_sepet["Fiyat"].sum()
         st.success(f"### 💰 Toplam Sistem Maliyeti: {toplam_tutar:,.2f} TL")
