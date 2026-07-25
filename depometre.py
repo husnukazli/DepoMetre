@@ -115,6 +115,21 @@ if 'oneri_sepete_eklendi' not in st.session_state: st.session_state['oneri_sepet
 is_logged_in = st.session_state['kullanici_rol'] in ['bayi', 'admin']
 is_admin = st.session_state['kullanici_rol'] == 'admin'
 
+# --- YARDIMCI FİYAT HESAPLAMA (Eski kayıtlardaki NULL sorununu çözer) ---
+def get_gercek_fiyat_tl(urun):
+    birim = urun.get("para_birimi")
+    if not birim: 
+        birim = "EUR" # Supabase'den boş dönerse eski kayıt varsay ve EUR kabul et
+        
+    raw_f = urun.get("fiyat")
+    eur_f = urun.get("fiyat_eur")
+    
+    if birim == "EUR" or (raw_f is None and eur_f):
+        val = float(eur_f if eur_f else (raw_f if raw_f else 0))
+        return val * GUNCEL_KUR_EUR
+    else:
+        return float(raw_f if raw_f else 0)
+
 teknik_sozluk = {
     "Bitzer": "Soğutucu Akışkan: R404A/R448A<br>Voltaj: 380-420V / 50Hz / 3Ph<br>Yağ Tipi: BSE32 (POE)<br>Menşei: Almanya",
     "Copeland": "Soğutucu Akışkan: R404A/R449A<br>Voltaj: 380-420V / 50Hz / 3Ph<br>Kompresör Tipi: Scroll<br>Menşei: ABD/Avrupa",
@@ -357,14 +372,14 @@ if db:
                 if komp:
                     m, md = komp.get('marka',''), komp.get('model_adi','')
                     komp_kw = float(komp.get('kapasite_kw', 0))
-                    komp_hp = komp_kw * 1.36 # HP Dönüşümü
+                    komp_hp = komp_kw * 1.36 
                     render_tooltip_box("Kompresör Grubu", m, md, get_teknik_detay(m, komp_kw), f" | Kapasite: {komp_kw:.1f} kW ({komp_hp:.1f} HP)")
-                    onerilen_sepet_listesi.append({"Kategori": "Kompresör", "Marka/Model": f"{m} - {md}", "Fiyat": float(komp.get("fiyat", komp.get("fiyat_eur", 0) * GUNCEL_KUR_EUR))})
+                    onerilen_sepet_listesi.append({"Kategori": "Kompresör", "Marka/Model": f"{m} - {md}", "Fiyat": get_gercek_fiyat_tl(komp)})
                 
                 if evap:
                     m, md = evap.get('marka',''), evap.get('model_adi','')
                     render_tooltip_box("Evaporatör", m, md, get_teknik_detay(m), f" | {evap_carpani} Adet")
-                    evap_toplam_fiyat = float(evap.get("fiyat", evap.get("fiyat_eur", 0) * GUNCEL_KUR_EUR)) * evap_carpani
+                    evap_toplam_fiyat = get_gercek_fiyat_tl(evap) * evap_carpani
                     evap_baslik = f"{m} - {md}" if evap_carpani == 1 else f"{m} - {md} ({evap_carpani} Adet)"
                     onerilen_sepet_listesi.append({"Kategori": "Evaporatör", "Marka/Model": evap_baslik, "Fiyat": evap_toplam_fiyat})
                 
@@ -407,7 +422,11 @@ if db:
                 with sekme:
                     uygun_parcalar = [p for p in db["parcalar_db"] if str(p.get("tip", "")).lower() == kategori_isimleri[index].lower()]
                     for parca in uygun_parcalar:
-                        p_birim = parca.get("para_birimi", "EUR")
+                        # V2 Fiyat Gösterimi (NULL Korumalı)
+                        p_birim = parca.get("para_birimi")
+                        if not p_birim:
+                            p_birim = "EUR" # Supabase boş gönderdiyse EUR kabul et
+                            
                         raw_fiyat = parca.get("fiyat")
                         fiyat_eur = parca.get("fiyat_eur", 0)
                         
