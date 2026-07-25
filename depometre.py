@@ -17,9 +17,9 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     header {visibility: hidden!important;}
     footer {visibility: hidden!important;}
-   .block-container {padding-top: 2rem!important;}
+  .block-container {padding-top: 2rem!important;}
     h1, h2, h3 {color: #0284c7; font-weight: 600;}
-   .info-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f8fafc; margin-bottom: 20px;}
+  .info-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f8fafc; margin-bottom: 20px;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -129,7 +129,8 @@ with col2:
     
     # Hedef sıcaklığa göre otomatik panel kalınlığı önerme
     tavsiye_panel = 80 if t_ic > 0 else 120
-    secilen_panel_kalinlik = st.selectbox("İzolasyon Paneli Kalınlığı (mm)", , index=.index(tavsiye_panel))
+    panel_secenekleri = 
+    secilen_panel_kalinlik = st.selectbox("İzolasyon Paneli Kalınlığı (mm)", panel_secenekleri, index=panel_secenekleri.index(tavsiye_panel))
 
     if st.button("Termodinamik Yükleri Hesapla ve Sistem Öner", type="primary"):
         sonuclar = hesapla_sogutma_yuku(en, boy, yukseklik, t_dis, t_ic, secilen_panel_kalinlik, urun_tipi, urun_miktar_kg, kapi_acilis)
@@ -159,9 +160,14 @@ with col2:
             fiyat_komp = komp["fiyat_eur"] * GUNCEL_KUR_EUR * 2 # Çift cihaz
             
         # 2. Evaporatör Seçimi
-        evap = next(e for e in yerel_veritabani["evaporatorler"] if e["min_kw"] <= sonuclar['gerekli_kw'] <= e["max_kw"])
-        st.info(f"**Evaporatör:** {evap['marka']} {evap['model']} - (Kapasite Uyumlu)")
-        fiyat_evap = evap["fiyat_eur"] * GUNCEL_KUR_EUR
+        uygun_evap = [e for e in yerel_veritabani["evaporatorler"] if e["min_kw"] <= sonuclar['gerekli_kw'] <= e["max_kw"]]
+        if uygun_evap:
+            evap = uygun_evap
+            st.info(f"**Evaporatör:** {evap['marka']} {evap['model']} - (Kapasite Uyumlu)")
+            fiyat_evap = evap["fiyat_eur"] * GUNCEL_KUR_EUR
+        else:
+            st.warning("Bu kapasite aralığına uygun standart evaporatör bulunamadı, özel üretim gerekir.")
+            fiyat_evap = 1200 * GUNCEL_KUR_EUR
         
         # 3. İzolasyon Paneli Maliyeti (Fire payı eklenerek)
         panel_veri = next(p for p in yerel_veritabani["paneller"] if p["kalinlik_mm"] == secilen_panel_kalinlik)
