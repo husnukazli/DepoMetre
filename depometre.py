@@ -1,459 +1,199 @@
 import streamlit as st
-from supabase import create_client, Client
 import pandas as pd
+import math
 import os
-import uuid
-import time
-from fpdf import FPDF
+from supabase import create_client, Client
 
 # ==========================================
-# 1. SUPABASE BAĞLANTISI VE AYARLAR
+# 1. AYARLAR VE ARAYÜZ YAPILANDIRMASI
 # ==========================================
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-st.set_page_config(page_title="Arces Mühendislik - Konfigüratör", page_icon="❄️", layout="wide")
+st.set_page_config(page_title="Arces Mühendislik - İleri Düzey Konfigüratör", page_icon="❄️", layout="wide")
 
 st.markdown("""
     <style>
-    /* BEYAZ ÜST BARI VE STREAMLIT İZLERİNİ KÖKTEN GİZLEME */
     #MainMenu {visibility: hidden;}
-    header {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    .stApp > header {display: none !important;}
-    [data-testid="stHeader"] {display: none !important;}
-    .block-container {padding-top: 2rem !important; margin-top: 0 !important;}
-    
-    .stDataFrame {font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}
+    header {visibility: hidden!important;}
+    footer {visibility: hidden!important;}
+    .block-container {padding-top: 2rem!important;}
     h1, h2, h3 {color: #0284c7; font-weight: 600;}
-    .fiyat-gizli {color: #eab308; font-weight: bold;}
-    .auth-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f8fafc; margin-bottom: 20px;}
+    .info-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f8fafc; margin-bottom: 20px;}
     </style>
 """, unsafe_allow_html=True)
 
-# Session State (Hafıza) Başlatma
+# Oturum (Session) Değişkenleri
 if 'sepet' not in st.session_state:
     st.session_state['sepet'] = []
 if 'kullanici_rol' not in st.session_state:
-    st.session_state['kullanici_rol'] = 'ziyaretci' 
-if 'kullanici_email' not in st.session_state:
-    st.session_state['kullanici_email'] = ''
-
-is_logged_in = st.session_state['kullanici_rol'] in ['bayi', 'admin']
-is_admin = st.session_state['kullanici_rol'] == 'admin'
+    st.session_state['kullanici_rol'] = 'bayi'
 
 # ==========================================
-# 2. PDF OLUŞTURMA FONKSİYONU
+# 2. SUPABASE BAĞLANTISI VE ÖNBELLEKLİ VERİ ÇEKME
 # ==========================================
-def create_pdf(sepet_verisi, toplam):
-    pdf = FPDF()
-    pdf.add_page()
+@st.cache_resource
+def init_supabase():
+    url = os.environ.get("SUPABASE_URL") or st.secrets.get("SUPABASE_URL", "")
+    key = os.environ.get("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY", "")
+    return create_client(url, key)
+
+supabase = init_supabase()
+
+@st.cache_data(ttl=600)
+def veritabani_verilerini_cek():
+    paneller = supabase.table("paneller").select("*").execute().data
+    urun_verileri_raw = supabase.table("urun_verileri").select("*").execute().data
+    parcalar = supabase.table("parcalar").select("*").execute().data
     
-    has_font = os.path.exists("arial.ttf")
-    if has_font:
-        pdf.add_font("ArialTR", "", "arial.ttf", uni=True)
-        pdf.add_font("ArialTR_B", "B", "arial.ttf", uni=True)
+    urun_sozlugu = {item["urun_tipi"]: {"cp": item["cp"], "solunum_kj_kg": item["solunum_kj_kg"]} for item in urun_verileri_raw}
     
-    try:
-        if os.path.exists("logo.png"):
-            pdf.image("logo.png", x=10, y=8, w=40)
-    except:
-        pass 
-        
-    pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 20)
-    pdf.cell(0, 10, txt="ARCES MUHENDISLIK", ln=True, align='C')
-    pdf.set_font("ArialTR" if has_font else "Arial", "", 12)
-    pdf.cell(0, 6, txt="Soguk Hava Deposu Konfigurasyon Teklifi", ln=True, align='C')
-    pdf.cell(0, 6, txt="Web: www.arcesmuhendislik.com", ln=True, align='C')
-    pdf.ln(15)
-        
-    pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 12)
-    pdf.cell(50, 10, txt="Kategori", border=1)
-    pdf.cell(100, 10, txt="Marka / Model", border=1)
-    pdf.cell(40, 10, txt="Fiyat (TL)", border=1, ln=True)
-    
-    pdf.set_font("ArialTR" if has_font else "Arial", "", 12)
-    for index, row in sepet_verisi.iterrows():
-        pdf.cell(50, 10, txt=str(row['Kategori']), border=1)
-        pdf.cell(100, 10, txt=str(row['Marka/Model']), border=1)
-        pdf.cell(40, 10, txt=f"{row['Fiyat']:,.2f}", border=1, ln=True)
-        
-    pdf.ln(10)
-    pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 14)
-    pdf.cell(0, 10, txt=f"Genel Toplam: {toplam:,.2f} TL + KDV", ln=True, align='R')
-    return bytes(pdf.output())
+    return {
+        "paneller": paneller,
+        "urun_verileri": urun_sozlugu,
+        "kompresorler": [p for p in parcalar if p.get("tip") == "kompresor"],
+        "evaporatorler": [p for p in parcalar if p.get("tip") == "evaporator"]
+    }
 
-def sepetten_cikar(uid):
-    st.session_state['sepet'] = [item for item in st.session_state['sepet'] if item.get('sepet_id') != uid]
+db = veritabani_verilerini_cek()
+GUNCEL_KUR_EUR = 38.50 
 
 # ==========================================
-# 3. EN ÜST ALAN: MARKA VE KULLANICI GİRİŞİ
+# 3. TERMODİNAMİK HESAPLAMA MOTORU 
 # ==========================================
-st.markdown("<div class='auth-kutu'>", unsafe_allow_html=True)
-col_logo, col_auth = st.columns([1, 2])
+def hesapla_sogutma_yuku(en, boy, yukseklik, t_dis, t_ic, panel_kalinlik, urun_tipi, urun_miktar_kg, kapi_acilis):
+    # StopIteration hatasını önleyen güvenli arama
+    panel = next((p for p in db["paneller"] if str(p["kalinlik_mm"]) == str(panel_kalinlik)), None)
+    
+    if panel is None:
+        st.error("Kritik Hata: Veritabanında eşleşen panel bulunamadı. Lütfen SQL 'paneller' tablosunun dolu olduğundan emin olun.")
+        st.stop()
+        
+    u_degeri = float(panel["u_degeri"])
+    
+    zemin_alani = en * boy
+    duvar_tavan_alani = (2 * en * yukseklik) + (2 * boy * yukseklik) + (en * boy)
+    
+    q_duvar_tavan = u_degeri * duvar_tavan_alani * (t_dis - t_ic) * 24 / 1000
+    q_zemin = u_degeri * zemin_alani * (15 - t_ic) * 24 / 1000 
+    q_iletim = q_duvar_tavan + q_zemin
+    
+    urun = db["urun_verileri"][urun_tipi]
+    q_urun_duyulur = urun_miktar_kg * float(urun["cp"]) * (t_dis - t_ic) / 3600
+    q_urun_solunum = (urun_miktar_kg * float(urun["solunum_kj_kg"])) / 3600
+    q_urun_toplam = q_urun_duyulur + q_urun_solunum
+    
+    kisi_sayisi = 1 if zemin_alani < 20 else 2
+    q_personel = (kisi_sayisi * 4 * 270) / 1000 
+    lamba_sayisi = math.ceil(zemin_alani / 10)
+    q_aydinlatma = (lamba_sayisi * 4 * 100) / 1000 
+    q_ic = q_personel + q_aydinlatma
+    
+    hacim = en * boy * yukseklik
+    degisim_katsayisi = {"Düşük": 3, "Orta": 5, "Yüksek": 8}[kapi_acilis]
+    q_infiltrasyon = degisim_katsayisi * hacim * 2 * (t_dis - t_ic) / 3600
+    
+    q_fan_defrost = (q_iletim + q_urun_toplam) * 0.15 
+    
+    toplam_gunluk_kwh = q_iletim + q_urun_toplam + q_ic + q_infiltrasyon + q_fan_defrost
+    emniyetli_yuk_kwh = toplam_gunluk_kwh * 1.20 
+    gerekli_komp_kw = emniyetli_yuk_kwh / 16.0 
+    
+    return {
+        "q_iletim": q_iletim, "q_urun": q_urun_toplam, "q_infiltrasyon": q_infiltrasyon,
+        "toplam_kwh": toplam_gunluk_kwh, "gerekli_kw": gerekli_komp_kw,
+        "zemin_alani": zemin_alani, "toplam_panel_m2": zemin_alani * 2 + duvar_tavan_alani
+    }
 
-with col_logo:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", width=250)
+# ==========================================
+# 4. KULLANICI ARAYÜZÜ 
+# ==========================================
+st.markdown("<div class='info-kutu'><h1 style='text-align: center;'>ARCES Soğutma Sistemleri Konfigüratörü</h1></div>", unsafe_allow_html=True)
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.header("1. Mimari ve Fiziksel Veriler")
+    en = st.number_input("En (Metre)", min_value=1.0, value=4.0, step=0.5)
+    boy = st.number_input("Boy (Metre)", min_value=1.0, value=5.0, step=0.5)
+    yukseklik = st.number_input("Yükseklik (Metre)", min_value=2.0, value=2.5, step=0.1)
+    
+    st.header("2. Termodinamik Parametreler")
+    t_dis = st.number_input("Dış Ortam Sıcaklığı (°C)", value=35.0)
+    t_ic = st.selectbox("Hedef Depo Sıcaklığı (°C)", [4.0, -18.0])
+    
+    urun_tipi = st.selectbox("Depolanacak Ürün Cinsi", list(db["urun_verileri"].keys()))
+    urun_miktar_kg = st.number_input("Günlük Ürün Girişi (Kg/Gün)", min_value=0, value=2000, step=500)
+    kapi_acilis = st.selectbox("Kapı Açılma Frekansı", ["Düşük", "Orta", "Yüksek"], index=1)
+
+with col2:
+    st.header("3. Sistem Analizi ve Bileşen Seçimi")
+    
+    tavsiye_panel = 80 if t_ic > 0 else 120
+    panel_secenekleri = [p["kalinlik_mm"] for p in db["paneller"]]
+    
+    # Güvenli index bulma
+    if tavsiye_panel in panel_secenekleri:
+        varsayilan_index = panel_secenekleri.index(tavsiye_panel)
     else:
-        st.markdown("## ARCES MÜHENDİSLİK")
-
-with col_auth:
-    if not is_logged_in:
-        auth_sekmeler = st.tabs(["Giriş Yap", "Kayıt Ol", "Şifremi Unuttum"])
+        varsayilan_index = 0
         
-        with auth_sekmeler[0]:
-            col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
-            g_email = col_g1.text_input("E-Posta", key="g_email", label_visibility="collapsed", placeholder="E-Posta Adresiniz")
-            g_sifre = col_g2.text_input("Şifre", type="password", key="g_sifre", label_visibility="collapsed", placeholder="Şifreniz")
-            if col_g3.button("Giriş Yap", use_container_width=True):
-                temiz_email = g_email.strip().lower()
-                temiz_sifre = g_sifre.strip()
-                try:
-                    user_req = supabase.table("kullanicilar").select("*").eq("email", temiz_email).eq("sifre", temiz_sifre).execute()
-                    if user_req.data:
-                        user_data = user_req.data[0]
-                        if user_data['onayli_mi']:
-                            st.session_state['kullanici_rol'] = user_data['rol']
-                            st.session_state['kullanici_email'] = user_data['email']
-                            st.rerun()
-                        else:
-                            st.warning("Hesabınız onay bekliyor.")
-                    else:
-                        st.error(f"Hatalı e-posta veya şifre. (Denediğiniz: {temiz_email})")
-                except Exception as e:
-                    st.error(f"Veritabanı bağlantı engeli: {e}")
-                    
-        with auth_sekmeler[1]:
-            col_k1, col_k2, col_k3 = st.columns([2, 2, 1])
-            k_email = col_k1.text_input("E-Posta", key="k_email", label_visibility="collapsed", placeholder="E-Posta Adresiniz")
-            k_sifre = col_k2.text_input("Şifre", type="password", key="k_sifre", label_visibility="collapsed", placeholder="Şifre Belirleyin")
-            if col_k3.button("Kayıt Ol", use_container_width=True):
-                try:
-                    temiz_yeni_email = k_email.strip().lower()
-                    supabase.table("kullanicilar").insert({"email": temiz_yeni_email, "sifre": k_sifre.strip()}).execute()
-                    st.success("Kayıt başarılı! Yönetici onayından sonra girebilirsiniz.")
-                except:
-                    st.error("Bu e-posta sistemde zaten var.")
-                    
-        with auth_sekmeler[2]:
-            st.write("Şifrenizi unuttuysanız sistem yöneticisine sıfırlama talebi gönderebilirsiniz.")
-            col_u1, col_u2 = st.columns([3, 1])
-            u_email = col_u1.text_input("E-Posta", key="u_email", label_visibility="collapsed", placeholder="Kayıtlı E-Posta Adresiniz")
-            if col_u2.button("Talep Gönder", use_container_width=True):
-                temiz_u_email = u_email.strip().lower()
-                check = supabase.table("kullanicilar").select("id").eq("email", temiz_u_email).execute()
-                if check.data:
-                    supabase.table("kullanicilar").update({"sifre_sifirlama_istendi": True}).eq("email", temiz_u_email).execute()
-                    st.success("Talebiniz yöneticiye iletildi. Geçici şifreniz size bildirilecektir.")
-                else:
-                    st.error("Sistemde böyle bir e-posta bulunamadı.")
-    else:
-        st.success(f"Hoş geldiniz, {st.session_state['kullanici_email']} ({st.session_state['kullanici_rol'].upper()})")
-        col_btn1, col_btn2 = st.columns([1, 1])
+    secilen_panel_kalinlik = st.selectbox("İzolasyon Paneli Kalınlığı (mm)", panel_secenekleri, index=varsayilan_index)
+
+    if st.button("Termodinamik Yükleri Hesapla ve Sistem Öner", type="primary"):
+        sonuclar = hesapla_sogutma_yuku(en, boy, yukseklik, t_dis, t_ic, secilen_panel_kalinlik, urun_tipi, urun_miktar_kg, kapi_acilis)
         
-        with st.expander("🔑 Şifremi Değiştir"):
-            yeni_sifre = st.text_input("Yeni Şifreniz", type="password")
-            if st.button("Şifreyi Güncelle"):
-                supabase.table("kullanicilar").update({"sifre": yeni_sifre.strip()}).eq("email", st.session_state['kullanici_email']).execute()
-                st.success("Şifreniz başarıyla değiştirildi!")
-                
-        if st.button("🚪 Çıkış Yap", type="secondary"):
-            st.session_state['kullanici_rol'] = 'ziyaretci'
-            st.session_state['kullanici_email'] = ''
-            st.session_state['sepet'] = []
-            st.rerun()
-
-st.markdown("</div>", unsafe_allow_html=True)
-st.divider()
-
-# ==========================================
-# 4. VERİTABANI ÖN YÜKLEME
-# ==========================================
-try:
-    kategoriler_db = supabase.table("kategoriler").select("*").execute().data
-    markalar_db = supabase.table("markalar").select("*").execute().data
-    parcalar_db = supabase.table("parcalar").select("*").eq("aktif_mi", True).execute().data
-    veriler_tamam = bool(kategoriler_db and parcalar_db)
-except Exception as e:
-    st.error(f"Veritabanı bağlantı hatası: {e}")
-    veriler_tamam = False
-
-# ==========================================
-# 5. ANA EKRAN YÖNETİMİ (SEKMELER)
-# ==========================================
-ana_sekmeler = ["Konfigüratör"]
-if is_admin:
-    ana_sekmeler.append("⚙️ Admin Paneli")
-
-secilen_ana_sekme = st.tabs(ana_sekmeler)
-
-# ----------------- KONFİGÜRATÖR SEKMESİ -----------------
-with secilen_ana_sekme[0]:
-    if not is_logged_in:
-        st.warning("⚠️ Ziyaretçi Modu: Sistemi test edebilirsiniz ancak fiyatları görmek ve teklif (PDF) almak için yukarıdan üye girişi yapmalısınız.")
+        st.success(f"### ⚙️ Gereksinim Duyulan Soğutma Kapasitesi: {sonuclar['gerekli_kw']:.2f} kW")
+        st.caption(f"Öngörülen Günlük Enerji (Isı) Yükü: {sonuclar['toplam_kwh']:.2f} kWh/Gün.")
         
-    if veriler_tamam:
-        # --- HACİM VE KAPASİTE HESABI ---
-        with st.container():
-            st.header("1. Hacim ve Kapasite Hesabı")
-            col1, col2, col3 = st.columns(3)
-            with col1: en = st.number_input("En (Metre)", min_value=1.0, value=3.0, step=0.5)
-            with col2: boy = st.number_input("Boy (Metre)", min_value=1.0, value=4.0, step=0.5)
-            with col3: yukseklik = st.number_input("Yükseklik (Metre)", min_value=1.0, value=2.5, step=0.5)
-                
-            hacim = en * boy * yukseklik
-            zemin_alani = en * boy
-            toplam_yuzey_alani = (2 * zemin_alani) + (2 * en * yukseklik) + (2 * boy * yukseklik)
-            
-            hedef_sicaklik = st.selectbox("Hedef Depo Sıcaklığı", ["+4 Derece (Soğuk)", "-18 Derece (Donuk)"])
-            btu_carpan = 350 if hedef_sicaklik == "+4 Derece (Soğuk)" else 550
-            gerekli_btu = int(hacim * btu_carpan)
-            
-            st.info(f"**Toplam Hacim:** {hacim:.2f} m³ | **İzolasyon Yüzeyi:** {toplam_yuzey_alani:.2f} m² | **İhtiyaç:** {gerekli_btu:,} BTU/h")
-
-            komp_kategori_id = next((k["id"] for k in kategoriler_db if "Kompresör" in k["kategori_adi"]), None)
-            if komp_kategori_id:
-                kompresorler = sorted([p for p in parcalar_db if p["kategori_id"] == komp_kategori_id and p["btu_kapasite"] > 0], key=lambda x: x["btu_kapasite"])
-                if kompresorler:
-                    en_iyi_secim = None
-                    en_az_fazla = float('inf')
-                    for komp in kompresorler:
-                        for adet in [1, 2]:
-                            toplam_kapasite = adet * komp["btu_kapasite"]
-                            if toplam_kapasite >= gerekli_btu:
-                                fazla = toplam_kapasite - gerekli_btu
-                                if fazla < en_az_fazla:
-                                    en_az_fazla = fazla
-                                    en_iyi_secim = (komp, adet)
-                    if not en_iyi_secim:
-                        en_iyi_secim = (kompresorler[-1], 2)
-                        
-                    komp, adet = en_iyi_secim
-                    marka_ad = next((m["marka_adi"] for m in markalar_db if m["id"] == komp["marka_id"]), "")
-                    st.success(f"💡 **Önerilen Kompresör:** {adet} Adet **{marka_ad} - {komp['model_adi']}** ({komp['btu_kapasite']:,} BTU x {adet})")
-
+        st.write("#### Isı Kazancı Dağılımı (kWh/Gün)")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("İletim (Transmisyon)", f"{sonuclar['q_iletim']:.1f}")
+        c2.metric("Ürün ve Solunum", f"{sonuclar['q_urun']:.1f}")
+        c3.metric("İnfiltrasyon", f"{sonuclar['q_infiltrasyon']:.1f}")
+        
         st.divider()
-
-        # --- PARÇA SEÇİMİ (KATALOG) ---
-        st.header("2. Sistem Bileşenleri")
-        kategori_isimleri = [k["kategori_adi"] for k in kategoriler_db]
-        sekmeler_kat = st.tabs(kategori_isimleri)
+        st.write("#### 🛠️ Önerilen Sistem Bileşenleri")
         
-        for index, sekme in enumerate(sekmeler_kat):
-            with sekme:
-                kategori_id = kategoriler_db[index]["id"]
-                kategori_adi = kategoriler_db[index]["kategori_adi"]
-                uygun_parcalar = [p for p in parcalar_db if p["kategori_id"] == kategori_id]
-                
-                if uygun_parcalar:
-                    for parca in uygun_parcalar:
-                        marka_adi = next((m["marka_adi"] for m in markalar_db if m["id"] == parca["marka_id"]), "Bilinmiyor")
-                        gosterilecek_fiyat = float(parca['fiyat'])
-                        tavsiye_etiketi = ""
-                        
-                        if "Panel" in kategori_adi:
-                            gosterilecek_fiyat = float(parca['fiyat']) * toplam_yuzey_alani
-                            tavsiye_etiketi = f"*(Toplam {toplam_yuzey_alani:.2f} m² için)*"
-                        if "Kapı" in kategori_adi:
-                            if (zemin_alani > 20 and "Sürgülü" in parca['model_adi']) or (zemin_alani <= 20 and "Menteşeli" in parca['model_adi']):
-                                tavsiye_etiketi = "💡 **(Tavsiye Edilir)**"
-
-                        p_col1, p_col2, p_col3, p_col4 = st.columns([4, 2, 2, 2])
-                        p_col1.write(f"**{marka_adi} - {parca['model_adi']}** {tavsiye_etiketi}")
-                        p_col2.write(f"Kapasite: {parca['btu_kapasite']:,} BTU" if parca["btu_kapasite"] > 0 else "")
-                        
-                        if is_logged_in:
-                            p_col3.write(f"Fiyat: {gosterilecek_fiyat:,.2f} TL")
-                        else:
-                            p_col3.markdown("Fiyat: <span class='fiyat-gizli'>🔒 Giriş Gerekli</span>", unsafe_allow_html=True)
-                        
-                        if p_col4.button("Sepete Ekle", key=f"ekle_{parca['id']}"):
-                            st.session_state['sepet'].append({
-                                "sepet_id": str(uuid.uuid4()),
-                                "Kategori": kategori_adi,
-                                "Marka/Model": f"{marka_adi} - {parca['model_adi']}",
-                                "Fiyat": gosterilecek_fiyat
-                            })
-                            st.rerun()
-                else:
-                    st.caption("Bu kategoride ürün bulunamadı.")
-
-        st.divider()
-
-        # --- SEPET ÖZETİ VE PDF ÇIKTISI ---
-        st.header("3. Konfigürasyon Özeti")
-        if st.session_state['sepet']:
-            for item in st.session_state['sepet']:
-                if 'sepet_id' not in item:
-                    item['sepet_id'] = str(uuid.uuid4())
-                s_col1, s_col2, s_col3, s_col4 = st.columns([3, 4, 3, 2])
-                s_col1.write(item['Kategori'])
-                s_col2.write(item['Marka/Model'])
-                
-                if is_logged_in:
-                    s_col3.write(f"{item['Fiyat']:,.2f} TL")
-                else:
-                    s_col3.markdown("<span class='fiyat-gizli'>Fiyat: 🔒 Gizli</span>", unsafe_allow_html=True)
-                    
-                s_col4.button("❌ Çıkar", key=f"sil_{item['sepet_id']}", on_click=sepetten_cikar, args=(item['sepet_id'],))
-                
-            st.write("---")
-            
-            df_sepet = pd.DataFrame(st.session_state['sepet'])
-            toplam_tutar = df_sepet["Fiyat"].sum()
-            
-            if is_logged_in:
-                st.success(f"### 💰 Toplam Sistem Maliyeti: {toplam_tutar:,.2f} TL")
-                
-                col_pdf, col_temizle = st.columns([1, 1])
-                with col_pdf:
-                    try:
-                        pdf_bytes = create_pdf(df_sepet, toplam_tutar)
-                        st.download_button(
-                            label="📄 PDF Olarak İndir (Arces Teklifi)",
-                            data=pdf_bytes,
-                            file_name="Arces_Soguk_Oda_Teklifi.pdf",
-                            mime="application/pdf",
-                            type="primary",
-                            use_container_width=True
-                        )
-                    except Exception as e:
-                        st.error(f"PDF hatası: {e}")
-                with col_temizle:
-                    if st.button("Tüm Sepeti Temizle", type="secondary", use_container_width=True):
-                        st.session_state['sepet'] = []
-                        st.rerun()
-            else:
-                st.error("🔒 Sistemin toplam maliyetini görmek ve PDF Teklif alabilmek için lütfen yukarıdan onaylı hesabınızla giriş yapınız.")
-                if st.button("Tüm Sepeti Temizle", type="secondary", use_container_width=True):
-                    st.session_state['sepet'] = []
-                    st.rerun()
+        # 1. Kompresör Seçimi
+        uygun_komp = [k for k in db["kompresorler"] if float(k.get("kapasite_kw", 0)) >= sonuclar['gerekli_kw']]
+        if uygun_komp:
+            komp = min(uygun_komp, key=lambda x: float(x["kapasite_kw"]))
+            st.info(f"**Kompresör:** {komp.get('marka', '')} {komp.get('model', '')} - {komp.get('hp', 0)} HP | Kapasite: {komp['kapasite_kw']} kW")
+            fiyat_komp = float(komp.get("fiyat_eur", 0)) * GUNCEL_KUR_EUR
         else:
-            st.info("Sepetinizde henüz bir parça bulunmuyor.")
-
-# ----------------- ADMİN PANELİ SEKMESİ -----------------
-if is_admin:
-    with secilen_ana_sekme[1]:
-        st.header("⚙️ Yönetici (Admin) Paneli")
-        admin_tab1, admin_tab2, admin_tab3, admin_tab4 = st.tabs([
-            "Kullanıcı Onayları", 
-            "Ürün Yönetimi (Gizle)", 
-            "➕ Yeni Ürün Ekle", 
-            "Şifre Sıfırlama Talepleri"
-        ])
+            st.warning("Bu kapasite için tek bir kompresör yetersiz. Paralel sistem önerilir.")
+            komp = db["kompresorler"][-1] if db["kompresorler"] else {"hp": 5, "fiyat_eur": 1500}
+            fiyat_komp = float(komp.get("fiyat_eur", 1500)) * GUNCEL_KUR_EUR * 2
+            
+        # 2. Evaporatör Seçimi 
+        uygun_evap = [e for e in db["evaporatorler"] if float(e.get("min_kw", 0)) <= sonuclar['gerekli_kw'] <= float(e.get("max_kw", 999))]
+        if uygun_evap:
+            evap = uygun_evap[0] 
+            st.info(f"**Evaporatör:** {evap.get('marka', '')} {evap.get('model', '')} - (Kapasite Uyumlu)")
+            fiyat_evap = float(evap.get("fiyat_eur", 0)) * GUNCEL_KUR_EUR
+        else:
+            st.warning("Bu kapasite aralığına uygun standart evaporatör bulunamadı, özel üretim gerekir.")
+            fiyat_evap = 1200 * GUNCEL_KUR_EUR
         
-        # 1. KULLANICI ONAYLARI
-        with admin_tab1:
-            bekleyenler = supabase.table("kullanicilar").select("*").eq("onayli_mi", False).execute().data
-            if bekleyenler:
-                for usr in bekleyenler:
-                    u_col1, u_col2 = st.columns([3,1])
-                    u_col1.write(f"📧 **{usr['email']}** (Kayıt: {usr['olusturma_tarihi'][:10]})")
-                    if u_col2.button("✅ Onayla", key=f"onay_{usr['id']}"):
-                        supabase.table("kullanicilar").update({"onayli_mi": True}).eq("id", usr['id']).execute()
-                        st.success("Onaylandı!")
-                        st.rerun()
-            else:
-                st.info("Onay bekleyen yeni kayıt yok.")
-                
-        # 2. ÜRÜN YÖNETİMİ
-        with admin_tab2:
-            st.write("Aşağıdan satışı duran ürünleri gizleyebilirsiniz.")
-            tum_parcalar = supabase.table("parcalar").select("*").execute().data
-            if tum_parcalar:
-                for parca in tum_parcalar:
-                    durum = "🟢 Aktif" if parca['aktif_mi'] else "🔴 Gizlendi"
-                    p_col1, p_col2 = st.columns([4,1])
-                    p_col1.write(f"{durum} | **Model:** {parca['model_adi']} (Fiyat: {parca['fiyat']} TL)")
-                    if parca['aktif_mi']:
-                        if p_col2.button("🚫 Gizle", key=f"gizle_{parca['id']}"):
-                            supabase.table("parcalar").update({"aktif_mi": False}).eq("id", parca['id']).execute()
-                            st.rerun()
-                    else:
-                        if p_col2.button("✅ Aktif Et", key=f"aktif_{parca['id']}"):
-                            supabase.table("parcalar").update({"aktif_mi": True}).eq("id", parca['id']).execute()
-                            st.rerun()
-
-        # 3. YENİ ÜRÜN EKLEME (AKILLI FORM)
-        with admin_tab3:
-            st.subheader("Veritabanına Yeni Ürün Ekle")
-            with st.form("yeni_urun_formu"):
-                st.write("Aşağıdaki listelerden seçim yapabilir **veya** listede olmayan yepyeni bir marka/kategori yazabilirsiniz.")
-                
-                # Kategori Seçimi veya Yeni Yazma
-                kat_isimleri = ["Listeden Seç..."] + [k["kategori_adi"] for k in kategoriler_db]
-                col_k1, col_k2 = st.columns(2)
-                secilen_kat_isim = col_k1.selectbox("Kategori (Mevcut)", kat_isimleri)
-                yeni_kat_isim = col_k2.text_input("Veya Yeni Kategori Yaz", placeholder="Örn: Kondenser")
-                
-                # Marka Seçimi veya Yeni Yazma
-                marka_isimleri = ["Listeden Seç..."] + [m["marka_adi"] for m in markalar_db]
-                col_m1, col_m2 = st.columns(2)
-                secilen_marka_isim = col_m1.selectbox("Marka (Mevcut)", marka_isimleri)
-                yeni_marka_isim = col_m2.text_input("Veya Yeni Marka Yaz", placeholder="Örn: X-Cooling")
-                
-                y_model = st.text_input("Model Adı", placeholder="Örn: 10 HP Scroll Kompresör")
-                y_btu = st.number_input("BTU Kapasitesi (Panel veya Kapı ise 0 bırakın)", min_value=0, value=0, step=1000)
-                y_fiyat = st.number_input("Birim Fiyatı (TL)", min_value=0.0, value=1000.0, step=100.0)
-                
-                submit_btn = st.form_submit_button("Ürünü Kaydet")
-                
-                if submit_btn:
-                    # Hangisinin kullanılacağına karar ver (Elle yazılan her zaman önceliklidir)
-                    final_kat = yeni_kat_isim.strip() if yeni_kat_isim.strip() else secilen_kat_isim
-                    final_marka = yeni_marka_isim.strip() if yeni_marka_isim.strip() else secilen_marka_isim
-                    
-                    if final_kat == "Listeden Seç..." or final_marka == "Listeden Seç...":
-                        st.error("Lütfen bir kategori ve marka belirleyin!")
-                    elif not y_model.strip():
-                        st.error("Lütfen bir model adı girin!")
-                    else:
-                        try:
-                            # 1. Kategori Kontrolü ve Ekleme
-                            mevcut_k = next((k["id"] for k in kategoriler_db if k["kategori_adi"].lower() == final_kat.lower()), None)
-                            if mevcut_k:
-                                k_id = mevcut_k
-                            else:
-                                yeni_k = supabase.table("kategoriler").insert({"kategori_adi": final_kat}).execute()
-                                k_id = yeni_k.data[0]["id"]
-                                
-                            # 2. Marka Kontrolü ve Ekleme
-                            mevcut_m = next((m["id"] for m in markalar_db if m["marka_adi"].lower() == final_marka.lower()), None)
-                            if mevcut_m:
-                                m_id = mevcut_m
-                            else:
-                                yeni_m = supabase.table("markalar").insert({"marka_adi": final_marka}).execute()
-                                m_id = yeni_m.data[0]["id"]
-                            
-                            # 3. Parçayı Ekleme
-                            supabase.table("parcalar").insert({
-                                "kategori_id": k_id,
-                                "marka_id": m_id,
-                                "model_adi": y_model.strip(),
-                                "btu_kapasite": y_btu,
-                                "fiyat": y_fiyat,
-                                "aktif_mi": True
-                            }).execute()
-                            
-                            st.success(f"✅ Yeni ürün başarıyla eklendi! Katalog güncelleniyor...")
-                            time.sleep(1.5)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Ekleme başarısız: Lütfen veritabanı bağlantınızı kontrol edin. ({e})")
-
-        # 4. ŞİFRE SIFIRLAMA TALEPLERİ
-        with admin_tab4:
-            sifre_isteyenler = supabase.table("kullanicilar").select("*").eq("sifre_sifirlama_istendi", True).execute().data
-            if sifre_isteyenler:
-                st.warning("Aşağıdaki kullanıcılar şifrelerini unuttu. Butona basarak şifrelerini geçici olarak 'arces1234' yapabilirsiniz.")
-                for usr in sifre_isteyenler:
-                    s_col1, s_col2 = st.columns([3, 1])
-                    s_col1.write(f"📧 **{usr['email']}** şifre sıfırlama bekliyor.")
-                    if s_col2.button("Geçici Şifre Ata", key=f"sifirla_{usr['id']}"):
-                        supabase.table("kullanicilar").update({"sifre": "arces1234", "sifre_sifirlama_istendi": False}).eq("id", usr['id']).execute()
-                        st.success(f"{usr['email']} için yeni şifre: arces1234")
-                        st.rerun()
-            else:
-                st.info("Şifre sıfırlama talebi bulunmuyor.")
+        # 3. İzolasyon Paneli Maliyeti
+        panel_veri = next((p for p in db["paneller"] if str(p["kalinlik_mm"]) == str(secilen_panel_kalinlik)), None)
+        if panel_veri is None:
+            st.error("Panel maliyeti hesaplanamadı. Varsayılan değer kullanılıyor.")
+            panel_m2_fiyat = 24.0
+        else:
+            panel_m2_fiyat = float(panel_veri["fiyat_eur_m2"])
+            
+        brut_panel_m2 = sonuclar['toplam_panel_m2'] * 1.08 
+        fiyat_panel = brut_panel_m2 * panel_m2_fiyat * GUNCEL_KUR_EUR
+        st.info(f"**İzolasyon Paneli:** {secilen_panel_kalinlik} mm PUR/PIR Sandviç Panel. Yaklaşık {brut_panel_m2:.1f} m² (Fire Dahil)")
+        
+        # 4. Kapı Seçimi
+        kapi_tipi = "Sürgülü Kapı (120x200)" if sonuclar['zemin_alani'] > 20 else "Menteşeli Çarpma Kapı (90x190)"
+        fiyat_kapi = 450 * GUNCEL_KUR_EUR if "Sürgülü" in kapi_tipi else 325 * GUNCEL_KUR_EUR
+        if t_ic < 0: fiyat_kapi += 50 * GUNCEL_KUR_EUR
+        st.info(f"**Kapı:** {kapi_tipi}")
+        
+        # Finansal Özet
+        toplam_malzeme = fiyat_komp + fiyat_evap + fiyat_panel + fiyat_kapi
+        muhendislik_kari = toplam_malzeme * 0.20 
+        toplam_satis = toplam_malzeme + muhendislik_kari
+        
+        st.success(f"### 💰 Anahtar Teslim Proje Tahmini Bedeli: {toplam_satis:,.2f} ₺ + KDV")
