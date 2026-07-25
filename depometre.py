@@ -93,7 +93,7 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# -- AKILLI KUR YÖNETİMİ --
+# -- AKILLİ KUR YÖNETİMİ --
 if 'guncel_kur' not in st.session_state:
     st.session_state['guncel_kur'] = 38.50  
 
@@ -295,9 +295,9 @@ st.markdown("</div>", unsafe_allow_html=True)
 st.info(f"💶 **Güncel Euro Kuru:** 1 EUR = {GUNCEL_KUR_EUR:.4f} TL")
 
 # ==========================================
-# 5. VERİTABANI ÖN YÜKLEME 
+# 5. VERİTABANI ÖN YÜKLEME (Esnek Pano Eşleme ve TTL Düşürüldü)
 # ==========================================
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=60)
 def veritabani_cek():
     try:
         prc = supabase.table("parcalar").select("*").execute().data 
@@ -307,7 +307,7 @@ def veritabani_cek():
             "parcalar_db": prc,
             "kompresorler": [p for p in prc if str(p.get("tip")).lower() == "kompresor"],
             "evaporatorler": [p for p in prc if str(p.get("tip")).lower() == "evaporator"],
-            "panolar": [p for p in prc if str(p.get("tip")).lower() in ["pano", "elektrik panosu", "kumanda panosu"]]
+            "panolar": [p for p in prc if any(x in str(p.get("tip", "")).lower() for x in ["pano", "kumanda", "elektrik"])]
         }
     except: return None
 db = veritabani_cek()
@@ -543,7 +543,7 @@ if db:
         else:
             st.info("Sepetinizde parça yok.")
 
-    # ----------------- ADMIN PANELİ -----------------
+    # ----------------- ADMİN PANELİ -----------------
     if is_admin:
         with secilen_ana_sekme[1]:
             st.header("⚙️ Yönetici (Admin) Paneli")
