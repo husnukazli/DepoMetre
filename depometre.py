@@ -128,7 +128,6 @@ teknik_sozluk = {
 def get_teknik_detay(marka, kw=None):
     for key, value in teknik_sozluk.items():
         if key.lower() in str(marka).lower(): return value
-    # HP hesaplaması detay penceresi için
     if kw:
         hp_degeri = float(kw) * 1.36
         ek_bilgi = f"<br>Kapasite: {kw} kW ({hp_degeri:.1f} HP)"
@@ -422,7 +421,6 @@ if db:
                             fiyat_metni = f"{tl_val:,.2f} TL"
                             sepet_fiyati = tl_val
 
-                        # Manuel katalog listelemesinde HP gösterimi
                         p_kw = float(parca.get("kapasite_kw") or 0.0)
                         hp_metni = f" ({p_kw * 1.36:.1f} HP)" if p_kw > 0 else ""
 
@@ -482,11 +480,11 @@ if db:
             st.header("⚙️ Yönetici (Admin) Paneli")
             
             admin_tab1, admin_tab2, admin_tab3, admin_tab4, admin_tab5 = st.tabs([
-                "Kullanıcı Onayları", 
+                "👥 Kullanıcı Onayları", 
+                "🔑 Şifre Talepleri",
+                "🗂️ Müşteri Teklif Arşivi", 
                 "➕ Yeni Ürün Ekle", 
-                "Şifre Talepleri",
-                "✏️ Katalog Yönetimi",
-                "🗂️ CRM Arşivi"
+                "✏️ Katalog Yönetimi"
             ])
             
             with admin_tab1:
@@ -502,6 +500,30 @@ if db:
                     st.info("Onay bekleyen yeni kayıt yok.")
                     
             with admin_tab2:
+                sifre_isteyenler = supabase.table("kullanicilar").select("*").eq("sifre_sifirlama_istendi", True).execute().data
+                if sifre_isteyenler:
+                    for usr in sifre_isteyenler:
+                        s_col1, s_col2 = st.columns([3, 1])
+                        s_col1.write(f"📧 **{usr['email']}** şifre sıfırlama bekliyor.")
+                        if s_col2.button("Geçici Şifre Ata", key=f"sifirla_{usr['id']}"):
+                            supabase.table("kullanicilar").update({"sifre": "arces1234", "sifre_sifirlama_istendi": False}).eq("id", usr['id']).execute()
+                            st.rerun()
+                else:
+                    st.info("Şifre sıfırlama talebi bulunmuyor.")
+                    
+            with admin_tab3:
+                st.subheader("🗂️ Geçmiş Müşteri Teklifleri Arşivi")
+                try:
+                    teklifler_data = supabase.table("teklifler").select("*").execute().data
+                    if teklifler_data:
+                        df_teklif = pd.DataFrame(teklifler_data)
+                        st.dataframe(df_teklif, use_container_width=True)
+                    else:
+                        st.info("Henüz veritabanına kaydedilmiş bir teklif bulunmuyor.")
+                except Exception as e:
+                    st.error("Veritabanına bağlanırken bir hata oluştu veya 'teklifler' tablosu eksik.")
+
+            with admin_tab4:
                 st.subheader("Kataloğa Yeni Cihaz Ekle")
                 mevcut_tipler = list(set([str(p.get("tip", "diger")).capitalize() for p in db["parcalar_db"] if p.get("tip")]))
                 mevcut_markalar = list(set([str(p.get("marka", "Markasız")).capitalize() for p in db["parcalar_db"] if p.get("marka")]))
@@ -537,19 +559,7 @@ if db:
                             }).execute()
                             st.success("✅ Yeni ürün eklendi! Önbelleği (Clear Cache) temizlediğinizde manuel katalogda belirecektir.")
 
-            with admin_tab3:
-                sifre_isteyenler = supabase.table("kullanicilar").select("*").eq("sifre_sifirlama_istendi", True).execute().data
-                if sifre_isteyenler:
-                    for usr in sifre_isteyenler:
-                        s_col1, s_col2 = st.columns([3, 1])
-                        s_col1.write(f"📧 **{usr['email']}** şifre sıfırlama bekliyor.")
-                        if s_col2.button("Geçici Şifre Ata", key=f"sifirla_{usr['id']}"):
-                            supabase.table("kullanicilar").update({"sifre": "arces1234", "sifre_sifirlama_istendi": False}).eq("id", usr['id']).execute()
-                            st.rerun()
-                else:
-                    st.info("Şifre sıfırlama talebi bulunmuyor.")
-                    
-            with admin_tab4:
+            with admin_tab5:
                 st.subheader("✏️ Katalog Yönetimi (Ürün Güncelle ve Sil)")
                 tum_parcalar = db["parcalar_db"]
                 if tum_parcalar:
@@ -563,7 +573,6 @@ if db:
                         yeni_model = c_g2.text_input("Model", value=secilen_p.get("model_adi", ""))
                         
                         mevcut_kw = float(secilen_p.get("kapasite_kw") or 0.0)
-                        # HP gösterimi panele de eklendi
                         yeni_kw = c_g1.number_input(f"Kapasite (kW) -> Yaklaşık {mevcut_kw * 1.36:.1f} HP", value=mevcut_kw)
                         
                         mevcut_birim = secilen_p.get("para_birimi", "EUR")
@@ -599,15 +608,3 @@ if db:
                             st.warning("⚠️ Ürün katalogdan tamamen silindi! Lütfen 'Clear Cache' yapıp sayfayı yenileyin.")
                 else:
                     st.info("Katalogda düzenlenecek parça bulunamadı.")
-                    
-            with admin_tab5:
-                st.subheader("🗂️ Geçmiş Müşteri Teklifleri (CRM Arşivi)")
-                try:
-                    teklifler_data = supabase.table("teklifler").select("*").execute().data
-                    if teklifler_data:
-                        df_teklif = pd.DataFrame(teklifler_data)
-                        st.dataframe(df_teklif, use_container_width=True)
-                    else:
-                        st.info("Henüz veritabanına kaydedilmiş bir teklif bulunmuyor.")
-                except Exception as e:
-                    st.error("Veritabanına bağlanırken bir hata oluştu veya 'teklifler' tablosu eksik.")
