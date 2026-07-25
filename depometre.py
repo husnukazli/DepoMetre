@@ -54,17 +54,15 @@ def veritabani_verilerini_cek():
 
 db = veritabani_verilerini_cek()
 
-# --- GEÇİCİ KONTROL KODU BAŞLANGICI ---
-st.write("Veritabanından Gelen Veriler:", db)
-# --- GEÇİCİ KONTROL KODU BİTİŞİ ---
-
+# ==========================================
+# TEST SATIRI KALDIRILDI
+# ==========================================
 GUNCEL_KUR_EUR = 38.50 
 
 # ==========================================
 # 3. TERMODİNAMİK HESAPLAMA MOTORU 
 # ==========================================
 def hesapla_sogutma_yuku(en, boy, yukseklik, t_dis, t_ic, panel_kalinlik, urun_tipi, urun_miktar_kg, kapi_acilis):
-    # StopIteration hatasını önleyen güvenli arama
     panel = next((p for p in db["paneller"] if str(p["kalinlik_mm"]) == str(panel_kalinlik)), None)
     
     if panel is None:
@@ -134,7 +132,6 @@ with col2:
     tavsiye_panel = 80 if t_ic > 0 else 120
     panel_secenekleri = [p["kalinlik_mm"] for p in db["paneller"]]
     
-    # Güvenli index bulma
     if tavsiye_panel in panel_secenekleri:
         varsayilan_index = panel_secenekleri.index(tavsiye_panel)
     else:
@@ -201,4 +198,4 @@ with col2:
         muhendislik_kari = toplam_malzeme * 0.20 
         toplam_satis = toplam_malzeme + muhendislik_kari
         
-        st.success(f"### 💰 Anahtar Teslim Proje Tahmini Bedeli: {toplam_satis:,.2f} ₺ + KDV")
+        st.success(f"### 💰 Anahtar Teslim Proje Tahmini Bedeli: {toplam_satis:,.2f} TL + KDV")
