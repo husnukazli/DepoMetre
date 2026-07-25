@@ -29,6 +29,58 @@ st.markdown("""
     
     .auth-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f8fafc; margin-bottom: 20px;}
     .info-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f0f9ff; margin-bottom: 20px;}
+    
+    /* AKILLI TOOLTIP (POP-UP) TASARIMI */
+    .tooltip {
+        position: relative;
+        display: inline-block;
+        cursor: help;
+        color: #0369a1;
+        font-weight: bold;
+        border-bottom: 1px dashed #0369a1;
+    }
+    .tooltip .tooltiptext {
+        visibility: hidden;
+        width: 260px;
+        background-color: #1e293b;
+        color: #f8fafc;
+        text-align: left;
+        border-radius: 8px;
+        padding: 12px;
+        position: absolute;
+        z-index: 100;
+        bottom: 125%;
+        left: 50%;
+        margin-left: -130px;
+        opacity: 0;
+        transition: opacity 0.3s;
+        font-size: 0.85em;
+        line-height: 1.5;
+        font-weight: normal;
+        box-shadow: 0px 4px 6px rgba(0,0,0,0.3);
+    }
+    .tooltip .tooltiptext::after {
+        content: "";
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -6px;
+        border-width: 6px;
+        border-style: solid;
+        border-color: #1e293b transparent transparent transparent;
+    }
+    .tooltip:hover .tooltiptext {
+        visibility: visible;
+        opacity: 1;
+    }
+    .custom-info-box {
+        border-left: 4px solid #3b82f6; 
+        background-color: #eff6ff; 
+        padding: 15px; 
+        border-radius: 4px; 
+        margin-bottom: 10px; 
+        font-family: sans-serif;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -44,9 +96,41 @@ GUNCEL_KUR_EUR = 38.50
 if 'sepet' not in st.session_state: st.session_state['sepet'] = []
 if 'kullanici_rol' not in st.session_state: st.session_state['kullanici_rol'] = 'ziyaretci' 
 if 'kullanici_email' not in st.session_state: st.session_state['kullanici_email'] = ''
+if 'oneri_sepete_eklendi' not in st.session_state: st.session_state['oneri_sepete_eklendi'] = False
 
 is_logged_in = st.session_state['kullanici_rol'] in ['bayi', 'admin']
 is_admin = st.session_state['kullanici_rol'] == 'admin'
+
+# --- AKILLI TEKNİK SÖZLÜK ---
+teknik_sozluk = {
+    "Bitzer": "Soğutucu Akışkan: R404A/R448A<br>Voltaj: 380-420V / 50Hz / 3Ph<br>Yağ Tipi: BSE32 (POE)<br>Menşei: Almanya",
+    "Copeland": "Soğutucu Akışkan: R404A/R449A<br>Voltaj: 380-420V / 50Hz / 3Ph<br>Kompresör Tipi: Scroll<br>Menşei: ABD/Avrupa",
+    "Frascold": "Soğutucu Akışkan: R404A/R448A<br>Voltaj: 400V / 50Hz / 3Ph<br>Yağ Tipi: POE<br>Menşei: İtalya",
+    "Guntner": "Gövde: Alüminyum/Galvaniz<br>Fan Voltajı: 230V / 1Ph<br>Defrost: Elektrikli (Standart)<br>Menşei: Almanya",
+    "Karyer": "Gövde: Alüminyum<br>Fan Voltajı: 230V / 1Ph<br>Defrost: Elektrikli (Standart)<br>Menşei: Türkiye",
+    "Arces PUR": "Yoğunluk: 40-42 kg/m³<br>Yüzey: Boyalı Galvaniz Sac<br>Kilit Sistemi: Eksantrik Kilitli",
+    "Arces Termal": "Kasa: Alüminyum/PVC<br>İzolasyon: 40-42 kg/m³ PUR<br>Aksesuar: EPDM Conta"
+}
+
+def get_teknik_detay(marka, kw=None):
+    for key, value in teknik_sozluk.items():
+        if key.lower() in str(marka).lower(): return value
+    # Veritabanında eşleşmeyen yeni markalar için genel bir teknik metin üretir:
+    ek_bilgi = f"<br>Kapasite: {kw} kW" if kw else ""
+    return f"Standart Endüstriyel Cihaz<br>Marka: {marka}{ek_bilgi}"
+
+def render_tooltip_box(kategori, marka, model, detay_html, extra_text=""):
+    html = f"""
+    <div class='custom-info-box'>
+        <strong>{kategori}:</strong> 
+        <span class='tooltip'>{marka} {model}
+            <span class='tooltiptext'>{detay_html}</span>
+        </span>
+        {extra_text}
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
 
 # ==========================================
 # 2. PDF VE SEPET FONKSİYONLARI
@@ -213,7 +297,9 @@ if db:
             panel_secenekleri = [p["kalinlik_mm"] for p in db["paneller"]]
             secilen_panel_kalinlik = st.selectbox("İzolasyon Paneli (mm)", panel_secenekleri, index=panel_secenekleri.index(tavsiye_panel) if tavsiye_panel in panel_secenekleri else 0)
 
-        if st.button("Sistem Hesapla ve Öner", type="primary"): st.session_state['hesaplama_yapildi'] = True
+        if st.button("Sistem Hesapla ve Öner", type="primary"): 
+            st.session_state['hesaplama_yapildi'] = True
+            st.session_state['oneri_sepete_eklendi'] = False # Yeni hesaplamada mükerrer uyarısını sıfırla
             
         if st.session_state.get('hesaplama_yapildi', False):
             sonuclar = hesapla_sogutma_yuku(en, boy, yukseklik, t_dis, t_ic, secilen_panel_kalinlik, urun_tipi, urun_miktar_kg, kapi_acilis, db)
@@ -232,24 +318,41 @@ if db:
                 onerilen_sepet_listesi = []
                 
                 if komp:
-                    st.info(f"**Kompresör:** {komp.get('marka','')} {komp.get('model_adi','')} | Kapasite: {komp.get('kapasite_kw','')} kW")
-                    onerilen_sepet_listesi.append({"Kategori": "Kompresör", "Marka/Model": f"{komp.get('marka','')} - {komp.get('model_adi','')}", "Fiyat": float(komp.get("fiyat", komp.get("fiyat_eur", 0) * GUNCEL_KUR_EUR))})
+                    m, md = komp.get('marka',''), komp.get('model_adi','')
+                    render_tooltip_box("Kompresör", m, md, get_teknik_detay(m, komp.get('kapasite_kw')), f" | Kapasite: {komp.get('kapasite_kw','')} kW")
+                    onerilen_sepet_listesi.append({"Kategori": "Kompresör", "Marka/Model": f"{m} - {md}", "Fiyat": float(komp.get("fiyat", komp.get("fiyat_eur", 0) * GUNCEL_KUR_EUR))})
+                
                 if evap:
-                    st.info(f"**Evaporatör:** {evap.get('marka','')} {evap.get('model_adi','')}")
-                    onerilen_sepet_listesi.append({"Kategori": "Evaporatör", "Marka/Model": f"{evap.get('marka','')} - {evap.get('model_adi','')}", "Fiyat": float(evap.get("fiyat", evap.get("fiyat_eur", 0) * GUNCEL_KUR_EUR))})
+                    m, md = evap.get('marka',''), evap.get('model_adi','')
+                    render_tooltip_box("Evaporatör", m, md, get_teknik_detay(m))
+                    onerilen_sepet_listesi.append({"Kategori": "Evaporatör", "Marka/Model": f"{m} - {md}", "Fiyat": float(evap.get("fiyat", evap.get("fiyat_eur", 0) * GUNCEL_KUR_EUR))})
+                
                 if panel_veri:
-                    st.info(f"**Panel:** {secilen_panel_kalinlik} mm PUR/PIR. Miktar: {brut_panel_m2:.1f} m²")
+                    panel_ad = f"{secilen_panel_kalinlik} mm PUR/PIR"
+                    render_tooltip_box("Panel", "Arces PUR", panel_ad, get_teknik_detay("Arces PUR"), f" | Miktar: {brut_panel_m2:.1f} m² (Fire Dahil)")
                     onerilen_sepet_listesi.append({"Kategori": "İzolasyon Paneli", "Marka/Model": f"{secilen_panel_kalinlik} mm Panel ({brut_panel_m2:.1f} m²)", "Fiyat": float(panel_veri["fiyat_eur_m2"]) * brut_panel_m2 * GUNCEL_KUR_EUR})
                 
                 kapi_fiyat_tl = ((450 if "Sürgülü" in kapi_tipi else 325) + (50 if t_ic < 0 else 0)) * GUNCEL_KUR_EUR
-                st.info(f"**Kapı:** {kapi_tipi}")
+                render_tooltip_box("Kapı", "Arces Termal", kapi_tipi, get_teknik_detay("Arces Termal"))
                 onerilen_sepet_listesi.append({"Kategori": "Kapı", "Marka/Model": kapi_tipi, "Fiyat": kapi_fiyat_tl})
                 
-                if st.button("🛒 BU SİSTEMİ SEPETE EKLE", type="primary"):
-                    for urun in onerilen_sepet_listesi:
-                        urun["sepet_id"] = str(uuid.uuid4())
-                        st.session_state['sepet'].append(urun)
-                    st.success("Parçalar sepete eklendi! En alttan inceleyebilirsiniz.")
+                st.write("") # Boşluk
+                
+                # --- MÜKERRER EKLEME KONTROLÜ ---
+                if not st.session_state.get('oneri_sepete_eklendi', False):
+                    if st.button("🛒 BU SİSTEMİ SEPETE EKLE", type="primary"):
+                        for urun in onerilen_sepet_listesi:
+                            urun["sepet_id"] = str(uuid.uuid4())
+                            st.session_state['sepet'].append(urun)
+                        st.session_state['oneri_sepete_eklendi'] = True
+                        st.rerun() # Sepeti anında günceller ve uyarı mesajına geçer
+                else:
+                    st.warning("✅ **Bu sistem şu anda sepetinizde bulunuyor.**")
+                    if st.button("Yine de İkinci Kez Ekle", type="secondary"):
+                        for urun in onerilen_sepet_listesi:
+                            urun["sepet_id"] = str(uuid.uuid4())
+                            st.session_state['sepet'].append(urun)
+                        st.success("Sistem ikinci kez sepete eklendi!")
 
         st.divider()
         
@@ -305,11 +408,13 @@ if db:
                 with col_temizle:
                     if st.button("Tüm Sepeti Temizle", use_container_width=True): 
                         st.session_state['sepet'] = []
+                        st.session_state['oneri_sepete_eklendi'] = False
                         st.rerun()
             else:
                 st.error("🔒 Sistemin toplam maliyetini görmek ve resmi PDF teklifini almak için lütfen yukarıdan kayıt olun veya giriş yapın.")
                 if st.button("Sepeti Temizle"): 
                     st.session_state['sepet'] = []
+                    st.session_state['oneri_sepete_eklendi'] = False
                     st.rerun()
         else:
             st.info("Sepetinizde parça yok.")
@@ -334,25 +439,38 @@ if db:
                     
             with admin_tab2:
                 st.subheader("Kataloğa Yeni Cihaz Ekle")
+                
+                mevcut_tipler = list(set([str(p.get("tip", "diger")).capitalize() for p in db["parcalar_db"] if p.get("tip")]))
+                mevcut_markalar = list(set([str(p.get("marka", "Markasız")).capitalize() for p in db["parcalar_db"] if p.get("marka")]))
+                
                 with st.form("yeni_urun_formu"):
-                    y_tip = st.selectbox("Parça Tipi (Kategori)", ["kompresor", "evaporator", "panel", "kapi", "diger"])
-                    y_marka = st.text_input("Marka", placeholder="Örn: Bitzer")
+                    col_t1, col_t2 = st.columns(2)
+                    secilen_tip = col_t1.selectbox("Kategori Seçimi", ["Listeden Seç..."] + mevcut_tipler)
+                    yeni_tip = col_t2.text_input("Veya Yeni Kategori Yaz", placeholder="Örn: Fan, Pano vb.")
+                    
+                    col_m1, col_m2 = st.columns(2)
+                    secilen_marka = col_m1.selectbox("Marka Seçimi", ["Listeden Seç..."] + mevcut_markalar)
+                    yeni_marka = col_m2.text_input("Veya Yeni Marka Yaz", placeholder="Örn: X-Cooling")
+                    
                     y_model = st.text_input("Model Adı", placeholder="Örn: Yeni Seri 10HP")
-                    y_kw = st.number_input("Kapasite (kW)", min_value=0.0, step=1.0)
+                    y_kw = st.number_input("Kapasite (kW) - Kapı/Panel ise 0 bırakın", min_value=0.0, step=1.0)
                     y_fiyat_tl = st.number_input("Birim Fiyatı (TL)", min_value=0.0, step=100.0)
                     
                     if st.form_submit_button("Ürünü Kaydet"):
-                        if not y_marka or not y_model:
-                            st.error("Marka ve Model adı zorunludur.")
+                        final_tip = yeni_tip.strip() if yeni_tip.strip() else (secilen_tip if secilen_tip != "Listeden Seç..." else "")
+                        final_marka = yeni_marka.strip() if yeni_marka.strip() else (secilen_marka if secilen_marka != "Listeden Seç..." else "")
+                        
+                        if not final_tip or not final_marka or not y_model:
+                            st.error("Lütfen Kategori, Marka ve Model adını eksiksiz doldurun.")
                         else:
                             supabase.table("parcalar").insert({
-                                "tip": y_tip,
-                                "marka": y_marka,
+                                "tip": final_tip.lower(),
+                                "marka": final_marka,
                                 "model_adi": y_model,
                                 "kapasite_kw": y_kw,
                                 "fiyat": y_fiyat_tl
                             }).execute()
-                            st.success("✅ Yeni ürün eklendi! Önbelleği temizlediğinizde katalogda görünecektir.")
+                            st.success("✅ Yeni ürün eklendi! Önbelleği (Clear Cache) temizlediğinizde manuel katalogda kendi özel sekmesiyle belirecektir.")
 
             with admin_tab3:
                 sifre_isteyenler = supabase.table("kullanicilar").select("*").eq("sifre_sifirlama_istendi", True).execute().data
