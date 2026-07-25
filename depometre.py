@@ -369,32 +369,33 @@ if db:
                 gerekli_hp = gerekli_kw * 1.36
                 st.success(f"### ⚙️ Gerekli Soğutma Kapasitesi: {gerekli_kw:.2f} kW ({gerekli_hp:.1f} HP)")
                 
-                evap_carpani = 2 if bolme_istiyor_mu else 1
                 kapi_sayisi = 2 if bolme_istiyor_mu else 1
                 ekstra_duvar_alani = 0.0
                 if bolme_istiyor_mu:
                     ekstra_duvar_alani = (en * yukseklik) if "Enine" in bolme_yonu else (boy * yukseklik)
 
-                # --- AKILLI KOMPRESÖR SEÇİMİ VE ÇOKLU (TANDEM/İKİLİ) SİSTEM MANTIĞI ---
+                # --- KOMPRESÖR SEÇİMİ VE ÇOKLU (TANDEM/İKİLİ) SİSTEM MANTIĞI ---
                 komp = None
                 komp_carpani = 1
                 
-                # 1. Adım: Tek başına tüm yükü karşılayabilen en küçük kompresörü ara
                 uygun_komp_tek = [k for k in db["kompresorler"] if float(k.get("kapasite_kw", 0)) >= gerekli_kw]
                 if uygun_komp_tek:
                     komp = min(uygun_komp_tek, key=lambda x: float(x["kapasite_kw"]))
                     komp_carpani = 1
                 else:
-                    # 2. Adım: Tek başına yetmiyorsa, yükün yarısını karşılayabilecek modelden 2 adet öner (Çift kompresörlü sistem)
                     yarim_yuk = gerekli_kw / 2.0
                     uygun_komp_ikili = [k for k in db["kompresorler"] if float(k.get("kapasite_kw", 0)) >= yarim_yuk]
                     if uygun_komp_ikili:
                         komp = min(uygun_komp_ikili, key=lambda x: float(x["kapasite_kw"]))
                         komp_carpani = 2
                     elif db["kompresorler"]:
-                        # 3. Adım: Hiçbiri yetmiyorsa veritabanındaki en büyük kompresörü alıp gerekli sayıda çoklu at
                         komp = max(db["kompresorler"], key=lambda x: float(x["kapasite_kw"]))
                         komp_carpani = math.ceil(gerekli_kw / float(komp.get("kapasite_kw", 1)))
+
+                # --- EVAPORATÖR SEÇİMİ (Ara duvar veya kompresör adedine göre otomatik dengelenir) ---
+                # Depo ortadan ikiye bölündüyse en az 2 evaporatör gerekir; kompresör ikili sisteme geçtiyse evaporatör de en az o kadar olmalıdır.
+                temel_evap_carpani = 2 if bolme_istiyor_mu else 1
+                evap_carpani = max(temel_evap_carpani, komp_carpani)
 
                 uygun_evap = [e for e in db["evaporatorler"] if float(e.get("min_kw", 0)) <= gerekli_kw <= float(e.get("max_kw", 999))]
                 evap = uygun_evap[0] if uygun_evap else (db["evaporatorler"][0] if db["evaporatorler"] else None)
@@ -427,7 +428,7 @@ if db:
                 
                 if panel_veri:
                     panel_ad = f"{secilen_panel_kalinlik} mm PUR/PIR"
-                    duvar_metni = "(Fire وجه Ara Duvar Dahil)" if bolme_istiyor_mu else "(Fire Dahil)"
+                    duvar_metni = "(Fire ve Ara Duvar Dahil)" if bolme_istiyor_mu else "(Fire Dahil)"
                     render_tooltip_box("Panel", "Arces PUR", panel_ad, get_teknik_detay("Arces PUR"), f" | Miktar: {brut_panel_m2:.1f} m² {duvar_metni}")
                     onerilen_sepet_listesi.append({"Kategori": "İzolasyon Paneli", "Marka/Model": f"{secilen_panel_kalinlik} mm Panel ({brut_panel_m2:.1f} m²)", "Fiyat": float(panel_veri["fiyat_eur_m2"]) * brut_panel_m2 * GUNCEL_KUR_EUR})
                 
@@ -645,6 +646,9 @@ if db:
                         c_btn1, c_btn2 = st.columns(2)
                         guncelle_btn = c_btn1.form_submit_button("💾 Değişiklikleri Güncelle")
                         sil_btn = c_btn2.form_submit_button("🗑️ Ürünü Kalıcı Olarak Sil")
+                        
+                        if guncellebtn if 'guncelle_btn' in locals() else guncelle_btn: # safe check
+                            pass
                         
                         if guncelle_btn:
                             update_data = {
