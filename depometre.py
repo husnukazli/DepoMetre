@@ -306,7 +306,8 @@ def veritabani_cek():
             "urun_verileri": {i["urun_tipi"]: {"cp": i["cp"], "solunum_kj_kg": i["solunum_kj_kg"]} for i in supabase.table("urun_verileri").select("*").execute().data}, 
             "parcalar_db": prc,
             "kompresorler": [p for p in prc if str(p.get("tip")).lower() == "kompresor"],
-            "evaporatorler": [p for p in prc if str(p.get("tip")).lower() == "evaporator"]
+            "evaporatorler": [p for p in prc if str(p.get("tip")).lower() == "evaporator"],
+            "panolar": [p for p in prc if str(p.get("tip")).lower() in ["pano", "elektrik panosu", "kumanda panosu"]]
         }
     except: return None
 db = veritabani_cek()
@@ -374,7 +375,7 @@ if db:
                 if bolme_istiyor_mu:
                     ekstra_duvar_alani = (en * yukseklik) if "Enine" in bolme_yonu else (boy * yukseklik)
 
-                # --- KOMPRESÖR SEÇİMİ VE ÇOKLU (TANDEM/İKİLİ) SİSTEM MANTIĞI ---
+                # --- KOMPRESÖR SEÇİMİ VE ÇOKLU SİSTEM MANTIĞI ---
                 komp = None
                 komp_carpani = 1
                 
@@ -392,13 +393,16 @@ if db:
                         komp = max(db["kompresorler"], key=lambda x: float(x["kapasite_kw"]))
                         komp_carpani = math.ceil(gerekli_kw / float(komp.get("kapasite_kw", 1)))
 
-                # --- EVAPORATÖR SEÇİMİ (Ara duvar veya kompresör adedine göre otomatik dengelenir) ---
-                # Depo ortadan ikiye bölündüyse en az 2 evaporatör gerekir; kompresör ikili sisteme geçtiyse evaporatör de en az o kadar olmalıdır.
+                # --- EVAPORATÖR SEÇİMİ ---
                 temel_evap_carpani = 2 if bolme_istiyor_mu else 1
                 evap_carpani = max(temel_evap_carpani, komp_carpani)
 
                 uygun_evap = [e for e in db["evaporatorler"] if float(e.get("min_kw", 0)) <= gerekli_kw <= float(e.get("max_kw", 999))]
                 evap = uygun_evap[0] if uygun_evap else (db["evaporatorler"][0] if db["evaporatorler"] else None)
+                
+                # --- ELEKTRİK PANOSU SEÇİMİ ---
+                pano = db["panolar"][0] if db["panolar"] else None
+
                 panel_veri = next((p for p in db["paneller"] if str(p["kalinlik_mm"]) == str(secilen_panel_kalinlik)), None)
                 
                 brut_panel_m2 = (sonuclar['toplam_panel_m2'] + ekstra_duvar_alani) * 1.08
@@ -425,6 +429,12 @@ if db:
                     evap_toplam_fiyat = get_gercek_fiyat_tl(evap) * evap_carpani
                     evap_baslik = f"{m} - {md}" if evap_carpani == 1 else f"{m} - {md} ({evap_carpani} Adet)"
                     onerilen_sepet_listesi.append({"Kategori": "Evaporatör", "Marka/Model": evap_baslik, "Fiyat": evap_toplam_fiyat})
+
+                if pano:
+                    m, md = pano.get('marka',''), pano.get('model_adi','')
+                    render_tooltip_box("Elektrik Panosu", m, md, get_teknik_detay(m), " | 1 Adet Kumanda ve Güç Panosu")
+                    pano_fiyat = get_gercek_fiyat_tl(pano)
+                    onerilen_sepet_listesi.append({"Kategori": "Elektrik Panosu", "Marka/Model": f"{m} - {md}", "Fiyat": pano_fiyat})
                 
                 if panel_veri:
                     panel_ad = f"{secilen_panel_kalinlik} mm PUR/PIR"
@@ -533,7 +543,7 @@ if db:
         else:
             st.info("Sepetinizde parça yok.")
 
-    # ----------------- ADMİN PANELİ -----------------
+    # ----------------- ADMIN PANELİ -----------------
     if is_admin:
         with secilen_ana_sekme[1]:
             st.header("⚙️ Yönetici (Admin) Paneli")
@@ -646,9 +656,6 @@ if db:
                         c_btn1, c_btn2 = st.columns(2)
                         guncelle_btn = c_btn1.form_submit_button("💾 Değişiklikleri Güncelle")
                         sil_btn = c_btn2.form_submit_button("🗑️ Ürünü Kalıcı Olarak Sil")
-                        
-                        if guncellebtn if 'guncelle_btn' in locals() else guncelle_btn: # safe check
-                            pass
                         
                         if guncelle_btn:
                             update_data = {
