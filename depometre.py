@@ -27,13 +27,11 @@ st.markdown("""
     .stDataFrame {font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}
     h1, h2, h3 {color: #0284c7; font-weight: 600;}
     
-    /* YENİ PREMIUM FİYAT GİZLEME TASARIMI */
     .fiyat-gizli {color: #b45309; font-weight: 500; font-size: 0.85em; background-color: #fef3c7; padding: 4px 10px; border-radius: 6px; border: 1px solid #fde68a;}
     
     .auth-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f8fafc; margin-bottom: 20px;}
     .info-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f0f9ff; margin-bottom: 20px;}
     
-    /* AKILLI TOOLTIP (POP-UP) TASARIMI */
     .tooltip {
         position: relative;
         display: inline-block;
@@ -117,7 +115,6 @@ if 'oneri_sepete_eklendi' not in st.session_state: st.session_state['oneri_sepet
 is_logged_in = st.session_state['kullanici_rol'] in ['bayi', 'admin']
 is_admin = st.session_state['kullanici_rol'] == 'admin'
 
-# --- AKILLI TEKNİK SÖZLÜK ---
 teknik_sozluk = {
     "Bitzer": "Soğutucu Akışkan: R404A/R448A<br>Voltaj: 380-420V / 50Hz / 3Ph<br>Yağ Tipi: BSE32 (POE)<br>Menşei: Almanya",
     "Copeland": "Soğutucu Akışkan: R404A/R449A<br>Voltaj: 380-420V / 50Hz / 3Ph<br>Kompresör Tipi: Scroll<br>Menşei: ABD/Avrupa",
@@ -131,7 +128,12 @@ teknik_sozluk = {
 def get_teknik_detay(marka, kw=None):
     for key, value in teknik_sozluk.items():
         if key.lower() in str(marka).lower(): return value
-    ek_bilgi = f"<br>Kapasite: {kw} kW" if kw else ""
+    # HP hesaplaması detay penceresi için
+    if kw:
+        hp_degeri = float(kw) * 1.36
+        ek_bilgi = f"<br>Kapasite: {kw} kW ({hp_degeri:.1f} HP)"
+    else:
+        ek_bilgi = ""
     return f"Standart Endüstriyel Cihaz<br>Marka: {marka}{ek_bilgi}"
 
 def render_tooltip_box(kategori, marka, model, detay_html, extra_text=""):
@@ -268,7 +270,6 @@ with col_auth:
             st.rerun()
 st.markdown("</div>", unsafe_allow_html=True)
 
-# GUNCEL KUR BİLGİSİ
 st.info(f"💶 **TCMB Güncel Euro Kuru:** 1 EUR = {GUNCEL_KUR_EUR:.4f} TL")
 
 # ==========================================
@@ -304,7 +305,6 @@ if db:
         
         c_sol, c_sag = st.columns(2)
         with c_sol:
-            # -- V2 İL VE TASARIM SICAKLIĞI --
             il_sicakliklari = {"İzmir": 35.0, "Antalya": 38.0, "Adana": 37.0, "İstanbul": 33.0, "Ankara": 32.0, "Zonguldak": 31.0, "Diğer": 35.0}
             secilen_il = st.selectbox("Projenin Uygulanacağı İl", list(il_sicakliklari.keys()))
             t_dis = st.number_input("Dış Ortam Sıcaklığı (°C)", value=il_sicakliklari[secilen_il], step=1.0)
@@ -313,7 +313,6 @@ if db:
             boy = st.number_input("Boy (Metre)", min_value=1.0, value=5.0, step=0.5)
             yukseklik = st.number_input("Yükseklik (Metre)", min_value=2.0, value=2.5, step=0.1)
             
-            # -- V2 ARA DUVAR ONAYI --
             bolme_istiyor_mu = st.checkbox("🔲 Bu depoyu ortadan ikiye bölmek (ara duvar eklemek) istiyorum")
             bolme_yonu = "Yok"
             if bolme_istiyor_mu:
@@ -338,7 +337,6 @@ if db:
             if sonuclar:
                 st.success(f"### ⚙️ Gerekli Soğutma Kapasitesi: {sonuclar['gerekli_kw']:.2f} kW")
                 
-                # -- V2 MATEMATİĞİ (ÇARPANLAR VE ARA DUVAR) --
                 evap_carpani = 2 if bolme_istiyor_mu else 1
                 kapi_sayisi = 2 if bolme_istiyor_mu else 1
                 ekstra_duvar_alani = 0.0
@@ -351,7 +349,6 @@ if db:
                 evap = uygun_evap[0] if uygun_evap else None
                 panel_veri = next((p for p in db["paneller"] if str(p["kalinlik_mm"]) == str(secilen_panel_kalinlik)), None)
                 
-                # Ara duvar eklenerek güncellenmiş toplam panel alanı
                 brut_panel_m2 = (sonuclar['toplam_panel_m2'] + ekstra_duvar_alani) * 1.08
                 kapi_tipi = "Sürgülü Kapı (120x200)" if sonuclar['zemin_alani'] > 20 else "Menteşeli Çarpma Kapı (90x190)"
 
@@ -360,7 +357,9 @@ if db:
                 
                 if komp:
                     m, md = komp.get('marka',''), komp.get('model_adi','')
-                    render_tooltip_box("Kompresör Grubu", m, md, get_teknik_detay(m, komp.get('kapasite_kw')), f" | Kapasite: {komp.get('kapasite_kw','')} kW")
+                    komp_kw = float(komp.get('kapasite_kw', 0))
+                    komp_hp = komp_kw * 1.36 # HP Dönüşümü
+                    render_tooltip_box("Kompresör Grubu", m, md, get_teknik_detay(m, komp_kw), f" | Kapasite: {komp_kw:.1f} kW ({komp_hp:.1f} HP)")
                     onerilen_sepet_listesi.append({"Kategori": "Kompresör", "Marka/Model": f"{m} - {md}", "Fiyat": float(komp.get("fiyat", komp.get("fiyat_eur", 0) * GUNCEL_KUR_EUR))})
                 
                 if evap:
@@ -382,7 +381,6 @@ if db:
                 
                 st.write("")
                 
-                # --- MÜKERRER EKLEME KONTROLÜ ---
                 if not st.session_state.get('oneri_sepete_eklendi', False):
                     if st.button("🛒 BU SİSTEMİ SEPETE EKLE", type="primary"):
                         for urun in onerilen_sepet_listesi:
@@ -410,19 +408,34 @@ if db:
                 with sekme:
                     uygun_parcalar = [p for p in db["parcalar_db"] if str(p.get("tip", "")).lower() == kategori_isimleri[index].lower()]
                     for parca in uygun_parcalar:
+                        p_birim = parca.get("para_birimi", "EUR")
                         raw_fiyat = parca.get("fiyat")
-                        gosterilecek_fiyat = float(parca.get("fiyat_eur", 0)) * GUNCEL_KUR_EUR if not raw_fiyat else float(raw_fiyat)
+                        fiyat_eur = parca.get("fiyat_eur", 0)
+                        
+                        if p_birim == "EUR" or (raw_fiyat is None and fiyat_eur):
+                            eur_val = float(fiyat_eur if fiyat_eur else (raw_fiyat if raw_fiyat else 0))
+                            tl_karsiligi = eur_val * GUNCEL_KUR_EUR
+                            fiyat_metni = f"{eur_val:,.2f} EUR ({tl_karsiligi:,.2f} TL)"
+                            sepet_fiyati = tl_karsiligi 
+                        else:
+                            tl_val = float(raw_fiyat if raw_fiyat else 0)
+                            fiyat_metni = f"{tl_val:,.2f} TL"
+                            sepet_fiyati = tl_val
+
+                        # Manuel katalog listelemesinde HP gösterimi
+                        p_kw = float(parca.get("kapasite_kw") or 0.0)
+                        hp_metni = f" ({p_kw * 1.36:.1f} HP)" if p_kw > 0 else ""
 
                         p_col1, p_col2, p_col3 = st.columns([5, 3, 2])
-                        p_col1.write(f"**{parca.get('marka', 'Markasız')} - {parca.get('model_adi', 'İsimsiz')}**")
+                        p_col1.write(f"**{parca.get('marka', 'Markasız')} - {parca.get('model_adi', 'İsimsiz')}{hp_metni}**")
                         
-                        if is_logged_in: p_col2.write(f"Fiyat: {gosterilecek_fiyat:,.2f} TL")
+                        if is_logged_in: p_col2.write(f"Fiyat: {fiyat_metni}")
                         else: p_col2.markdown("<span class='fiyat-gizli'>🔒 Fiyatlandırma için oturum açın</span>", unsafe_allow_html=True)
                         
                         if p_col3.button("Ekle", key=f"ekle_{parca['id']}"):
                             st.session_state['sepet'].append({
                                 "sepet_id": str(uuid.uuid4()), "Kategori": kategori_isimleri[index],
-                                "Marka/Model": f"{parca.get('marka', '')} - {parca.get('model_adi', '')}", "Fiyat": gosterilecek_fiyat
+                                "Marka/Model": f"{parca.get('marka', '')} - {parca.get('model_adi', '')}", "Fiyat": sepet_fiyati
                             })
                             st.rerun()
 
@@ -468,13 +481,12 @@ if db:
         with secilen_ana_sekme[1]:
             st.header("⚙️ Yönetici (Admin) Paneli")
             
-            # V2 İçin Genişletilmiş Sekmeler
             admin_tab1, admin_tab2, admin_tab3, admin_tab4, admin_tab5 = st.tabs([
                 "Kullanıcı Onayları", 
                 "➕ Yeni Ürün Ekle", 
                 "Şifre Talepleri",
-                "✏️ Katalog Yönetimi (v2)",
-                "🗂️ CRM Arşivi (v2)"
+                "✏️ Katalog Yönetimi",
+                "🗂️ CRM Arşivi"
             ])
             
             with admin_tab1:
@@ -503,7 +515,7 @@ if db:
                     secilen_marka = col_m1.selectbox("Marka Seçimi", ["Listeden Seç..."] + mevcut_markalar)
                     yeni_marka = col_m2.text_input("Veya Yeni Marka Yaz", placeholder="Örn: X-Cooling")
                     
-                    y_model = st.text_input("Model Adı", placeholder="Örn: Yeni Seri 10HP")
+                    y_model = st.text_input("Model Adı", placeholder="Örn: Yeni Seri")
                     y_kw = st.number_input("Kapasite (kW) - Kapı/Panel ise 0 bırakın", min_value=0.0, step=1.0)
                     y_fiyat_tl = st.number_input("Birim Fiyatı (TL/EUR Seçimine Göre)", min_value=0.0, step=100.0)
                     y_para_birimi = st.selectbox("Para Birimi", ["EUR", "TL"])
@@ -515,7 +527,6 @@ if db:
                         if not final_tip or not final_marka or not y_model:
                             st.error("Lütfen Kategori, Marka ve Model adını eksiksiz doldurun.")
                         else:
-                            # V2'de açtığımız para_birimi sütunu artık burada da kayıt ediliyor
                             supabase.table("parcalar").insert({
                                 "tip": final_tip.lower(),
                                 "marka": final_marka,
@@ -524,7 +535,7 @@ if db:
                                 "fiyat_eur" if y_para_birimi == "EUR" else "fiyat": y_fiyat_tl,
                                 "para_birimi": y_para_birimi
                             }).execute()
-                            st.success("✅ Yeni ürün eklendi! Önbelleği (Clear Cache) temizlediğinizde manuel katalogda kendi özel sekmesiyle belirecektir.")
+                            st.success("✅ Yeni ürün eklendi! Önbelleği (Clear Cache) temizlediğinizde manuel katalogda belirecektir.")
 
             with admin_tab3:
                 sifre_isteyenler = supabase.table("kullanicilar").select("*").eq("sifre_sifirlama_istendi", True).execute().data
@@ -539,9 +550,64 @@ if db:
                     st.info("Şifre sıfırlama talebi bulunmuyor.")
                     
             with admin_tab4:
-                st.subheader("Veritabanı Ürün Güncelleme (Geliştirme Aşamasında)")
-                st.info("Katalogdaki mevcut ürünlerin fiyat ve isim güncellemelerinin bağlanacağı alandır. V2 altyapısı buraya entegre edilecektir.")
-                
+                st.subheader("✏️ Katalog Yönetimi (Ürün Güncelle ve Sil)")
+                tum_parcalar = db["parcalar_db"]
+                if tum_parcalar:
+                    secenekler = {f"{p.get('marka','')} - {p.get('model_adi','')}": p for p in tum_parcalar}
+                    secilen_isim = st.selectbox("İşlem Yapılacak Ürünü Seçin", list(secenekler.keys()))
+                    secilen_p = secenekler[secilen_isim]
+                    
+                    with st.form("guncelleme_formu"):
+                        c_g1, c_g2 = st.columns(2)
+                        yeni_marka = c_g1.text_input("Marka", value=secilen_p.get("marka", ""))
+                        yeni_model = c_g2.text_input("Model", value=secilen_p.get("model_adi", ""))
+                        
+                        mevcut_kw = float(secilen_p.get("kapasite_kw") or 0.0)
+                        # HP gösterimi panele de eklendi
+                        yeni_kw = c_g1.number_input(f"Kapasite (kW) -> Yaklaşık {mevcut_kw * 1.36:.1f} HP", value=mevcut_kw)
+                        
+                        mevcut_birim = secilen_p.get("para_birimi", "EUR")
+                        mevcut_fiyat = float(secilen_p.get("fiyat_eur") if mevcut_birim == "EUR" else secilen_p.get("fiyat") or 0.0)
+                        
+                        yeni_fiyat = c_g2.number_input("Fiyat", value=mevcut_fiyat)
+                        yeni_birim = c_g1.selectbox("Para Birimi", ["EUR", "TL"], index=0 if mevcut_birim=="EUR" else 1)
+                        
+                        st.write("---")
+                        c_btn1, c_btn2 = st.columns(2)
+                        guncelle_btn = c_btn1.form_submit_button("💾 Değişiklikleri Güncelle")
+                        sil_btn = c_btn2.form_submit_button("🗑️ Ürünü Kalıcı Olarak Sil")
+                        
+                        if guncelle_btn:
+                            update_data = {
+                                "marka": yeni_marka,
+                                "model_adi": yeni_model,
+                                "kapasite_kw": yeni_kw,
+                                "para_birimi": yeni_birim
+                            }
+                            if yeni_birim == "EUR":
+                                update_data["fiyat_eur"] = yeni_fiyat
+                                update_data["fiyat"] = None
+                            else:
+                                update_data["fiyat"] = yeni_fiyat
+                                update_data["fiyat_eur"] = None
+                                
+                            supabase.table("parcalar").update(update_data).eq("id", secilen_p["id"]).execute()
+                            st.success("✅ Ürün başarıyla güncellendi! Lütfen sağ üstten 'Clear Cache' yapıp sayfayı yenileyin.")
+                        
+                        if sil_btn:
+                            supabase.table("parcalar").delete().eq("id", secilen_p["id"]).execute()
+                            st.warning("⚠️ Ürün katalogdan tamamen silindi! Lütfen 'Clear Cache' yapıp sayfayı yenileyin.")
+                else:
+                    st.info("Katalogda düzenlenecek parça bulunamadı.")
+                    
             with admin_tab5:
-                st.subheader("Geçmiş Müşteri Teklifleri (CRM)")
-                st.info("Yeni açtığımız 'teklifler' tablosuna kayıt edilecek PDF'lerin listeleneceği sekmedir.")
+                st.subheader("🗂️ Geçmiş Müşteri Teklifleri (CRM Arşivi)")
+                try:
+                    teklifler_data = supabase.table("teklifler").select("*").execute().data
+                    if teklifler_data:
+                        df_teklif = pd.DataFrame(teklifler_data)
+                        st.dataframe(df_teklif, use_container_width=True)
+                    else:
+                        st.info("Henüz veritabanına kaydedilmiş bir teklif bulunmuyor.")
+                except Exception as e:
+                    st.error("Veritabanına bağlanırken bir hata oluştu veya 'teklifler' tablosu eksik.")
