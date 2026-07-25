@@ -218,7 +218,7 @@ def veritabani_cek():
     try:
         pnl = supabase.table("paneller").select("*").execute().data
         urn = supabase.table("urun_verileri").select("*").execute().data
-        prc = supabase.table("parcalar").select("*").execute().data # aktif_mi kontrolü kaldırıldı, eski db yapısı çatışmasını önlemek için
+        prc = supabase.table("parcalar").select("*").execute().data 
         
         urun_dict = {item["urun_tipi"]: {"cp": item["cp"], "solunum_kj_kg": item["solunum_kj_kg"]} for item in urn}
         return {
@@ -266,13 +266,17 @@ if db:
             panel_secenekleri = [p["kalinlik_mm"] for p in db["paneller"]]
             secilen_panel_kalinlik = st.selectbox("İzolasyon Paneli Kalınlığı (mm)", panel_secenekleri, index=panel_secenekleri.index(tavsiye_panel) if tavsiye_panel in panel_secenekleri else 0)
 
+        # HATA ÇÖZÜMÜ: Buton tıklamasını hafızaya alma
         if st.button("Termodinamik Yükleri Hesapla ve Sistem Öner", type="primary"):
+            st.session_state['hesaplama_yapildi'] = True
+            
+        # Hafızadaki bilgi True olduğu sürece bu blok açık kalır ve içindeki "Sepete Ekle" butonu çalışır
+        if st.session_state.get('hesaplama_yapildi', False):
             sonuclar = hesapla_sogutma_yuku(en, boy, yukseklik, t_dis, t_ic, secilen_panel_kalinlik, urun_tipi, urun_miktar_kg, kapi_acilis, db)
             
             if sonuclar:
                 st.success(f"### ⚙️ Gereksinim Duyulan Soğutma Kapasitesi: {sonuclar['gerekli_kw']:.2f} kW")
                 
-                # ÖNERİLEN PARÇALARI BUL
                 uygun_komp = [k for k in db["kompresorler"] if float(k.get("kapasite_kw", 0)) >= sonuclar['gerekli_kw']]
                 komp = min(uygun_komp, key=lambda x: float(x["kapasite_kw"])) if uygun_komp else None
                 
@@ -313,6 +317,8 @@ if db:
                         urun["sepet_id"] = str(uuid.uuid4())
                         st.session_state['sepet'].append(urun)
                     st.success("Tüm önerilen parçalar sepete eklendi! Sayfanın en altından inceleyebilirsiniz.")
+                    # İsteğe bağlı: Eklendikten sonra hesaplama ekranı kapansın derseniz alttaki satırı aktif edebilirsiniz.
+                    # st.session_state['hesaplama_yapildi'] = False
 
         st.divider()
         
