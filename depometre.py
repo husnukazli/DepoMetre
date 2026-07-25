@@ -93,19 +93,27 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# -- TCMB KURU V2 ENTEGRASYONU --
-@st.cache_data(ttl=3600)
-def get_tcmb_euro_kur():
+# -- AKILLI KUR YÖNETİMİ (Son başarılı veriyi koruma mekanizması) --
+if 'guncel_kur' not in st.session_state:
+    st.session_state['guncel_kur'] = 38.50  # En baştan hiç veri alınamadıysa geçici ilk değer
+
+def euro_kurunu_guncelle():
     try:
-        response = requests.get("https://www.tcmb.gov.tr/kurlar/today.xml")
+        response = requests.get("https://www.tcmb.gov.tr/kurlar/today.xml", timeout=5)
         tree = ET.fromstring(response.content)
         for currency in tree.findall('Currency'):
             if currency.get('CurrencyCode') == 'EUR':
-                return float(currency.find('ForexSelling').text)
-    except: pass
-    return 38.50 
+                yeni_kur = float(currency.find('ForexSelling').text)
+                st.session_state['guncel_kur'] = yeni_kur # Başarılıysa hafızayı güncelle
+                break
+    except:
+        pass # Bağlantı koparsa veya TCMB yanıt vermezse, en son çekilen başarılı kur korunur!
 
-GUNCEL_KUR_EUR = get_tcmb_euro_kur()
+if 'kur_cekildi_mi' not in st.session_state:
+    euro_kurunu_guncelle()
+    st.session_state['kur_cekildi_mi'] = True
+
+GUNCEL_KUR_EUR = st.session_state['guncel_kur']
 
 if 'sepet' not in st.session_state: st.session_state['sepet'] = []
 if 'kullanici_rol' not in st.session_state: st.session_state['kullanici_rol'] = 'ziyaretci' 
@@ -116,20 +124,18 @@ if 'hesaplama_yapildi' not in st.session_state: st.session_state['hesaplama_yapi
 is_logged_in = st.session_state['kullanici_rol'] in ['bayi', 'admin']
 is_admin = st.session_state['kullanici_rol'] == 'admin'
 
-# --- YARDIMCI FİYAT HESAPLAMA (Eski kayıtlardaki NULL sorununu çözer) ---
+# --- YARDIMCI FİYAT HESAPLAMA ---
 def get_gercek_fiyat_tl(urun):
     birim = urun.get("para_birimi")
     if not birim: 
-        birim = "EUR" # Supabase'den boş dönerse eski kayıt varsay ve EUR kabul et
+        birim = "EUR" 
         
-    raw_f = urun.get("fiyat")
-    eur_f = urun.get("fiyat_eur")
+    fiyat_degeri = float(urun.get("fiyat") or 0.0)
     
-    if birim == "EUR" or (raw_f is None and eur_f):
-        val = float(eur_f if eur_f else (raw_f if raw_f else 0))
-        return val * GUNCEL_KUR_EUR
+    if birim == "EUR":
+        return fiyat_degeri * GUNCEL_KUR_EUR
     else:
-        return float(raw_f if raw_f else 0)
+        return fiyat_degeri
 
 teknik_sozluk = {
     "Bitzer": "Soğutucu Akışkan: R404A/R448A<br>Voltaj: 380-420V / 50Hz / 3Ph<br>Yağ Tipi: BSE32 (POE)<br>Menşei: Almanya",
@@ -200,7 +206,7 @@ def create_pdf(sepet_verisi, toplam):
     pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 14)
     pdf.cell(0, 10, txt=f"Genel Toplam: {toplam:,.2f} TL + KDV", ln=True, align='R')
     pdf.set_font("ArialTR" if has_font else "Arial", "", 10)
-    pdf.cell(0, 10, txt=f"Not: Bu teklif {datetime.now().strftime('%d.%m.%Y')} tarihli TCMB kuru (1 EUR = {GUNCEL_KUR_EUR:.2f} TL) ile hazirlanmistir.", ln=True, align='R')
+    pdf.cell(0, 10, txt=f"Not: Bu teklif {datetime.now().strftime('%d.%m.%Y')} tarihli kur (1 EUR = {GUNCEL_KUR_EUR:.2f} TL) ile hazirlanmistir.", ln=True, align='R')
     return bytes(pdf.output())
 
 def sepetten_cikar(uid):
@@ -286,7 +292,7 @@ with col_auth:
             st.rerun()
 st.markdown("</div>", unsafe_allow_html=True)
 
-st.info(f"💶 **TCMB Güncel Euro Kuru:** 1 EUR = {GUNCEL_KUR_EUR:.4f} TL")
+st.info(f"💶 **Güncel Euro Kuru:** 1 EUR = {GUNCEL_KUR_EUR:.4f} TL")
 
 # ==========================================
 # 5. VERİTABANI ÖN YÜKLEME 
@@ -433,23 +439,19 @@ if db:
                 with sekme:
                     uygun_parcalar = [p for p in db["parcalar_db"] if str(p.get("tip", "")).lower() == kategori_isimleri[index].lower()]
                     for parca in uygun_parcalar:
-                        # V2 Fiyat Gösterimi (NULL Korumalı)
                         p_birim = parca.get("para_birimi")
                         if not p_birim:
-                            p_birim = "EUR" # Supabase boş gönderdiyse EUR kabul et
+                            p_birim = "EUR" 
                             
-                        raw_fiyat = parca.get("fiyat")
-                        fiyat_eur = parca.get("fiyat_eur", 0)
+                        val = float(parca.get("fiyat") or 0.0)
                         
-                        if p_birim == "EUR" or (raw_fiyat is None and fiyat_eur):
-                            eur_val = float(fiyat_eur if fiyat_eur else (raw_fiyat if raw_fiyat else 0))
-                            tl_karsiligi = eur_val * GUNCEL_KUR_EUR
-                            fiyat_metni = f"{eur_val:,.2f} EUR ({tl_karsiligi:,.2f} TL)"
+                        if p_birim == "EUR":
+                            tl_karsiligi = val * GUNCEL_KUR_EUR
+                            fiyat_metni = f"{val:,.2f} EUR ({tl_karsiligi:,.2f} TL)"
                             sepet_fiyati = tl_karsiligi 
                         else:
-                            tl_val = float(raw_fiyat if raw_fiyat else 0)
-                            fiyat_metni = f"{tl_val:,.2f} TL"
-                            sepet_fiyati = tl_val
+                            fiyat_metni = f"{val:,.2f} TL"
+                            sepet_fiyati = val
 
                         p_kw = float(parca.get("kapasite_kw") or 0.0)
                         hp_metni = f" ({p_kw * 1.36:.1f} HP)" if p_kw > 0 else ""
@@ -569,7 +571,7 @@ if db:
                     
                     y_model = st.text_input("Model Adı", placeholder="Örn: Yeni Seri")
                     y_kw = st.number_input("Kapasite (kW) - Kapı/Panel ise 0 bırakın", min_value=0.0, step=1.0)
-                    y_fiyat_tl = st.number_input("Birim Fiyatı (TL/EUR Seçimine Göre)", min_value=0.0, step=100.0)
+                    y_fiyat = st.number_input("Birim Fiyatı (Seçilen Para Birimine Göre)", min_value=0.0, step=100.0)
                     y_para_birimi = st.selectbox("Para Birimi", ["EUR", "TL"])
                     
                     if st.form_submit_button("Ürünü Kaydet"):
@@ -584,7 +586,7 @@ if db:
                                 "marka": final_marka,
                                 "model_adi": y_model,
                                 "kapasite_kw": y_kw,
-                                "fiyat_eur" if y_para_birimi == "EUR" else "fiyat": y_fiyat_tl,
+                                "fiyat": y_fiyat,
                                 "para_birimi": y_para_birimi
                             }).execute()
                             st.success("✅ Yeni ürün eklendi! Önbelleği (Clear Cache) temizlediğinizde manuel katalogda belirecektir.")
@@ -605,8 +607,10 @@ if db:
                         mevcut_kw = float(secilen_p.get("kapasite_kw") or 0.0)
                         yeni_kw = c_g1.number_input(f"Kapasite (kW) -> Yaklaşık {mevcut_kw * 1.36:.1f} HP", value=mevcut_kw)
                         
-                        mevcut_birim = secilen_p.get("para_birimi", "EUR")
-                        mevcut_fiyat = float(secilen_p.get("fiyat_eur") if mevcut_birim == "EUR" else secilen_p.get("fiyat") or 0.0)
+                        mevcut_birim = secilen_p.get("para_birimi")
+                        if not mevcut_birim: mevcut_birim = "EUR"
+                        
+                        mevcut_fiyat = float(secilen_p.get("fiyat") or 0.0)
                         
                         yeni_fiyat = c_g2.number_input("Fiyat", value=mevcut_fiyat)
                         yeni_birim = c_g1.selectbox("Para Birimi", ["EUR", "TL"], index=0 if mevcut_birim=="EUR" else 1)
@@ -621,14 +625,9 @@ if db:
                                 "marka": yeni_marka,
                                 "model_adi": yeni_model,
                                 "kapasite_kw": yeni_kw,
-                                "para_birimi": yeni_birim
+                                "para_birimi": yeni_birim,
+                                "fiyat": yeni_fiyat
                             }
-                            if yeni_birim == "EUR":
-                                update_data["fiyat_eur"] = yeni_fiyat
-                                update_data["fiyat"] = None
-                            else:
-                                update_data["fiyat"] = yeni_fiyat
-                                update_data["fiyat_eur"] = None
                                 
                             supabase.table("parcalar").update(update_data).eq("id", secilen_p["id"]).execute()
                             st.success("✅ Ürün başarıyla güncellendi! Lütfen sağ üstten 'Clear Cache' yapıp sayfayı yenileyin.")
