@@ -3,6 +3,7 @@ from supabase import create_client, Client
 import pandas as pd
 import os
 import uuid
+import time
 from fpdf import FPDF
 
 # ==========================================
@@ -107,17 +108,22 @@ with col_auth:
             g_email = col_g1.text_input("E-Posta", key="g_email", label_visibility="collapsed", placeholder="E-Posta Adresiniz")
             g_sifre = col_g2.text_input("Şifre", type="password", key="g_sifre", label_visibility="collapsed", placeholder="Şifreniz")
             if col_g3.button("Giriş Yap", use_container_width=True):
-                user_req = supabase.table("kullanicilar").select("*").eq("email", g_email).eq("sifre", g_sifre).execute()
-                if user_req.data:
-                    user_data = user_req.data[0]
-                    if user_data['onayli_mi']:
-                        st.session_state['kullanici_rol'] = user_data['rol']
-                        st.session_state['kullanici_email'] = user_data['email']
-                        st.rerun()
+                temiz_email = g_email.strip().lower()
+                temiz_sifre = g_sifre.strip()
+                try:
+                    user_req = supabase.table("kullanicilar").select("*").eq("email", temiz_email).eq("sifre", temiz_sifre).execute()
+                    if user_req.data:
+                        user_data = user_req.data[0]
+                        if user_data['onayli_mi']:
+                            st.session_state['kullanici_rol'] = user_data['rol']
+                            st.session_state['kullanici_email'] = user_data['email']
+                            st.rerun()
+                        else:
+                            st.warning("Hesabınız onay bekliyor.")
                     else:
-                        st.warning("Hesabınız onay bekliyor.")
-                else:
-                    st.error("Hatalı e-posta veya şifre.")
+                        st.error(f"Hatalı e-posta veya şifre. (Denediğiniz: {temiz_email})")
+                except Exception as e:
+                    st.error(f"Veritabanı bağlantı engeli: {e}")
                     
         with auth_sekmeler[1]:
             col_k1, col_k2, col_k3 = st.columns([2, 2, 1])
@@ -125,7 +131,8 @@ with col_auth:
             k_sifre = col_k2.text_input("Şifre", type="password", key="k_sifre", label_visibility="collapsed", placeholder="Şifre Belirleyin")
             if col_k3.button("Kayıt Ol", use_container_width=True):
                 try:
-                    supabase.table("kullanicilar").insert({"email": k_email, "sifre": k_sifre}).execute()
+                    temiz_yeni_email = k_email.strip().lower()
+                    supabase.table("kullanicilar").insert({"email": temiz_yeni_email, "sifre": k_sifre.strip()}).execute()
                     st.success("Kayıt başarılı! Yönetici onayından sonra girebilirsiniz.")
                 except:
                     st.error("Bu e-posta sistemde zaten var.")
@@ -135,9 +142,10 @@ with col_auth:
             col_u1, col_u2 = st.columns([3, 1])
             u_email = col_u1.text_input("E-Posta", key="u_email", label_visibility="collapsed", placeholder="Kayıtlı E-Posta Adresiniz")
             if col_u2.button("Talep Gönder", use_container_width=True):
-                check = supabase.table("kullanicilar").select("id").eq("email", u_email).execute()
+                temiz_u_email = u_email.strip().lower()
+                check = supabase.table("kullanicilar").select("id").eq("email", temiz_u_email).execute()
                 if check.data:
-                    supabase.table("kullanicilar").update({"sifre_sifirlama_istendi": True}).eq("email", u_email).execute()
+                    supabase.table("kullanicilar").update({"sifre_sifirlama_istendi": True}).eq("email", temiz_u_email).execute()
                     st.success("Talebiniz yöneticiye iletildi. Geçici şifreniz size bildirilecektir.")
                 else:
                     st.error("Sistemde böyle bir e-posta bulunamadı.")
@@ -148,7 +156,7 @@ with col_auth:
         with st.expander("🔑 Şifremi Değiştir"):
             yeni_sifre = st.text_input("Yeni Şifreniz", type="password")
             if st.button("Şifreyi Güncelle"):
-                supabase.table("kullanicilar").update({"sifre": yeni_sifre}).eq("email", st.session_state['kullanici_email']).execute()
+                supabase.table("kullanicilar").update({"sifre": yeni_sifre.strip()}).eq("email", st.session_state['kullanici_email']).execute()
                 st.success("Şifreniz başarıyla değiştirildi!")
                 
         if st.button("🚪 Çıkış Yap", type="secondary"):
@@ -329,7 +337,12 @@ with secilen_ana_sekme[0]:
 if is_admin:
     with secilen_ana_sekme[1]:
         st.header("⚙️ Yönetici (Admin) Paneli")
-        admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Kullanıcı Onayları", "Ürün Yönetimi (Gizle)", "Şifre Sıfırlama Talepleri"])
+        admin_tab1, admin_tab2, admin_tab3, admin_tab4 = st.tabs([
+            "Kullanıcı Onayları", 
+            "Ürün Yönetimi (Gizle)", 
+            "➕ Yeni Ürün Ekle", 
+            "Şifre Sıfırlama Talepleri"
+        ])
         
         # 1. KULLANICI ONAYLARI
         with admin_tab1:
@@ -363,8 +376,75 @@ if is_admin:
                             supabase.table("parcalar").update({"aktif_mi": True}).eq("id", parca['id']).execute()
                             st.rerun()
 
-        # 3. ŞİFRE SIFIRLAMA TALEPLERİ
+        # 3. YENİ ÜRÜN EKLEME (AKILLI FORM)
         with admin_tab3:
+            st.subheader("Veritabanına Yeni Ürün Ekle")
+            with st.form("yeni_urun_formu"):
+                st.write("Aşağıdaki listelerden seçim yapabilir **veya** listede olmayan yepyeni bir marka/kategori yazabilirsiniz.")
+                
+                # Kategori Seçimi veya Yeni Yazma
+                kat_isimleri = ["Listeden Seç..."] + [k["kategori_adi"] for k in kategoriler_db]
+                col_k1, col_k2 = st.columns(2)
+                secilen_kat_isim = col_k1.selectbox("Kategori (Mevcut)", kat_isimleri)
+                yeni_kat_isim = col_k2.text_input("Veya Yeni Kategori Yaz", placeholder="Örn: Kondenser")
+                
+                # Marka Seçimi veya Yeni Yazma
+                marka_isimleri = ["Listeden Seç..."] + [m["marka_adi"] for m in markalar_db]
+                col_m1, col_m2 = st.columns(2)
+                secilen_marka_isim = col_m1.selectbox("Marka (Mevcut)", marka_isimleri)
+                yeni_marka_isim = col_m2.text_input("Veya Yeni Marka Yaz", placeholder="Örn: X-Cooling")
+                
+                y_model = st.text_input("Model Adı", placeholder="Örn: 10 HP Scroll Kompresör")
+                y_btu = st.number_input("BTU Kapasitesi (Panel veya Kapı ise 0 bırakın)", min_value=0, value=0, step=1000)
+                y_fiyat = st.number_input("Birim Fiyatı (TL)", min_value=0.0, value=1000.0, step=100.0)
+                
+                submit_btn = st.form_submit_button("Ürünü Kaydet")
+                
+                if submit_btn:
+                    # Hangisinin kullanılacağına karar ver (Elle yazılan her zaman önceliklidir)
+                    final_kat = yeni_kat_isim.strip() if yeni_kat_isim.strip() else secilen_kat_isim
+                    final_marka = yeni_marka_isim.strip() if yeni_marka_isim.strip() else secilen_marka_isim
+                    
+                    if final_kat == "Listeden Seç..." or final_marka == "Listeden Seç...":
+                        st.error("Lütfen bir kategori ve marka belirleyin!")
+                    elif not y_model.strip():
+                        st.error("Lütfen bir model adı girin!")
+                    else:
+                        try:
+                            # 1. Kategori Kontrolü ve Ekleme
+                            mevcut_k = next((k["id"] for k in kategoriler_db if k["kategori_adi"].lower() == final_kat.lower()), None)
+                            if mevcut_k:
+                                k_id = mevcut_k
+                            else:
+                                yeni_k = supabase.table("kategoriler").insert({"kategori_adi": final_kat}).execute()
+                                k_id = yeni_k.data[0]["id"]
+                                
+                            # 2. Marka Kontrolü ve Ekleme
+                            mevcut_m = next((m["id"] for m in markalar_db if m["marka_adi"].lower() == final_marka.lower()), None)
+                            if mevcut_m:
+                                m_id = mevcut_m
+                            else:
+                                yeni_m = supabase.table("markalar").insert({"marka_adi": final_marka}).execute()
+                                m_id = yeni_m.data[0]["id"]
+                            
+                            # 3. Parçayı Ekleme
+                            supabase.table("parcalar").insert({
+                                "kategori_id": k_id,
+                                "marka_id": m_id,
+                                "model_adi": y_model.strip(),
+                                "btu_kapasite": y_btu,
+                                "fiyat": y_fiyat,
+                                "aktif_mi": True
+                            }).execute()
+                            
+                            st.success(f"✅ Yeni ürün başarıyla eklendi! Katalog güncelleniyor...")
+                            time.sleep(1.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Ekleme başarısız: Lütfen veritabanı bağlantınızı kontrol edin. ({e})")
+
+        # 4. ŞİFRE SIFIRLAMA TALEPLERİ
+        with admin_tab4:
             sifre_isteyenler = supabase.table("kullanicilar").select("*").eq("sifre_sifirlama_istendi", True).execute().data
             if sifre_isteyenler:
                 st.warning("Aşağıdaki kullanıcılar şifrelerini unuttu. Butona basarak şifrelerini geçici olarak 'arces1234' yapabilirsiniz.")
