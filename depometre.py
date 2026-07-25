@@ -23,7 +23,10 @@ st.markdown("""
     
     .stDataFrame {font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}
     h1, h2, h3 {color: #0284c7; font-weight: 600;}
-    .fiyat-gizli {color: #ef4444; font-weight: bold; font-size: 0.9em; background-color: #fee2e2; padding: 4px 8px; border-radius: 5px;}
+    
+    /* YENİ PREMIUM FİYAT GİZLEME TASARIMI */
+    .fiyat-gizli {color: #b45309; font-weight: 500; font-size: 0.85em; background-color: #fef3c7; padding: 4px 10px; border-radius: 6px; border: 1px solid #fde68a;}
+    
     .auth-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f8fafc; margin-bottom: 20px;}
     .info-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f0f9ff; margin-bottom: 20px;}
     </style>
@@ -267,7 +270,7 @@ if db:
                         p_col1.write(f"**{parca.get('marka', 'Markasız')} - {parca.get('model_adi', 'İsimsiz')}**")
                         
                         if is_logged_in: p_col2.write(f"Fiyat: {gosterilecek_fiyat:,.2f} TL")
-                        else: p_col2.markdown("<span class='fiyat-gizli'>🔒 Fiyatı Görmek İçin Giriş Yapın</span>", unsafe_allow_html=True)
+                        else: p_col2.markdown("<span class='fiyat-gizli'>🔒 Fiyatlandırma için oturum açın</span>", unsafe_allow_html=True)
                         
                         if p_col3.button("Ekle", key=f"ekle_{parca['id']}"):
                             st.session_state['sepet'].append({
@@ -286,7 +289,7 @@ if db:
                 s_col1.write(item['Kategori'])
                 s_col2.write(item['Marka/Model'])
                 if is_logged_in: s_col3.write(f"{item['Fiyat']:,.2f} TL")
-                else: s_col3.markdown("<span class='fiyat-gizli'>🔒 Fiyat Gizli</span>", unsafe_allow_html=True)
+                else: s_col3.markdown("<span class='fiyat-gizli'>🔒 Fiyatlandırma için oturum açın</span>", unsafe_allow_html=True)
                 s_col4.button("❌ Çıkar", key=f"sil_{item['sepet_id']}", on_click=sepetten_cikar, args=(item['sepet_id'],))
                 
             st.write("---")
@@ -311,7 +314,54 @@ if db:
         else:
             st.info("Sepetinizde parça yok.")
 
+    # ----------------- ADMİN PANELİ -----------------
     if is_admin:
         with secilen_ana_sekme[1]:
-            st.header("⚙️ Admin Paneli")
-            st.info("Onay bekleyen kullanıcı ve yeni parça ekleme modülleri burada yer almaktadır.")
+            st.header("⚙️ Yönetici (Admin) Paneli")
+            admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Kullanıcı Onayları", "➕ Yeni Ürün Ekle", "Şifre Sıfırlama Talepleri"])
+            
+            with admin_tab1:
+                bekleyenler = supabase.table("kullanicilar").select("*").eq("onayli_mi", False).execute().data
+                if bekleyenler:
+                    for usr in bekleyenler:
+                        u_col1, u_col2 = st.columns([3,1])
+                        u_col1.write(f"📧 **{usr['email']}**")
+                        if u_col2.button("✅ Onayla", key=f"onay_{usr['id']}"):
+                            supabase.table("kullanicilar").update({"onayli_mi": True}).eq("id", usr['id']).execute()
+                            st.rerun()
+                else:
+                    st.info("Onay bekleyen yeni kayıt yok.")
+                    
+            with admin_tab2:
+                st.subheader("Kataloğa Yeni Cihaz Ekle")
+                with st.form("yeni_urun_formu"):
+                    y_tip = st.selectbox("Parça Tipi (Kategori)", ["kompresor", "evaporator", "panel", "kapi", "diger"])
+                    y_marka = st.text_input("Marka", placeholder="Örn: Bitzer")
+                    y_model = st.text_input("Model Adı", placeholder="Örn: Yeni Seri 10HP")
+                    y_kw = st.number_input("Kapasite (kW)", min_value=0.0, step=1.0)
+                    y_fiyat_tl = st.number_input("Birim Fiyatı (TL)", min_value=0.0, step=100.0)
+                    
+                    if st.form_submit_button("Ürünü Kaydet"):
+                        if not y_marka or not y_model:
+                            st.error("Marka ve Model adı zorunludur.")
+                        else:
+                            supabase.table("parcalar").insert({
+                                "tip": y_tip,
+                                "marka": y_marka,
+                                "model_adi": y_model,
+                                "kapasite_kw": y_kw,
+                                "fiyat": y_fiyat_tl
+                            }).execute()
+                            st.success("✅ Yeni ürün eklendi! Önbelleği temizlediğinizde katalogda görünecektir.")
+
+            with admin_tab3:
+                sifre_isteyenler = supabase.table("kullanicilar").select("*").eq("sifre_sifirlama_istendi", True).execute().data
+                if sifre_isteyenler:
+                    for usr in sifre_isteyenler:
+                        s_col1, s_col2 = st.columns([3, 1])
+                        s_col1.write(f"📧 **{usr['email']}** şifre sıfırlama bekliyor.")
+                        if s_col2.button("Geçici Şifre Ata", key=f"sifirla_{usr['id']}"):
+                            supabase.table("kullanicilar").update({"sifre": "arces1234", "sifre_sifirlama_istendi": False}).eq("id", usr['id']).execute()
+                            st.rerun()
+                else:
+                    st.info("Şifre sıfırlama talebi bulunmuyor.")
