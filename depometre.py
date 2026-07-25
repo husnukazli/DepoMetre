@@ -93,9 +93,9 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# -- AKILLI KUR YÖNETİMİ (Son başarılı veriyi koruma mekanizması) --
+# -- AKILLI KUR YÖNETİMİ --
 if 'guncel_kur' not in st.session_state:
-    st.session_state['guncel_kur'] = 38.50  # En baştan hiç veri alınamadıysa geçici ilk değer
+    st.session_state['guncel_kur'] = 38.50  
 
 def euro_kurunu_guncelle():
     try:
@@ -104,10 +104,10 @@ def euro_kurunu_guncelle():
         for currency in tree.findall('Currency'):
             if currency.get('CurrencyCode') == 'EUR':
                 yeni_kur = float(currency.find('ForexSelling').text)
-                st.session_state['guncel_kur'] = yeni_kur # Başarılıysa hafızayı güncelle
+                st.session_state['guncel_kur'] = yeni_kur 
                 break
     except:
-        pass # Bağlantı koparsa veya TCMB yanıt vermezse, en son çekilen başarılı kur korunur!
+        pass 
 
 if 'kur_cekildi_mi' not in st.session_state:
     euro_kurunu_guncelle()
@@ -365,7 +365,9 @@ if db:
             sonuclar = hesapla_sogutma_yuku(en, boy, yukseklik, t_dis, t_ic, secilen_panel_kalinlik, urun_tipi, urun_miktar_kg, kapi_acilis, db)
             
             if sonuclar:
-                st.success(f"### ⚙️ Gerekli Soğutma Kapasitesi: {sonuclar['gerekli_kw']:.2f} kW")
+                gerekli_kw = sonuclar['gerekli_kw']
+                gerekli_hp = gerekli_kw * 1.36
+                st.success(f"### ⚙️ Gerekli Soğutma Kapasitesi: {gerekli_kw:.2f} kW ({gerekli_hp:.1f} HP)")
                 
                 evap_carpani = 2 if bolme_istiyor_mu else 1
                 kapi_sayisi = 2 if bolme_istiyor_mu else 1
@@ -373,10 +375,29 @@ if db:
                 if bolme_istiyor_mu:
                     ekstra_duvar_alani = (en * yukseklik) if "Enine" in bolme_yonu else (boy * yukseklik)
 
-                uygun_komp = [k for k in db["kompresorler"] if float(k.get("kapasite_kw", 0)) >= sonuclar['gerekli_kw']]
-                komp = min(uygun_komp, key=lambda x: float(x["kapasite_kw"])) if uygun_komp else None
-                uygun_evap = [e for e in db["evaporatorler"] if float(e.get("min_kw", 0)) <= sonuclar['gerekli_kw'] <= float(e.get("max_kw", 999))]
-                evap = uygun_evap[0] if uygun_evap else None
+                # --- AKILLI KOMPRESÖR SEÇİMİ VE ÇOKLU (TANDEM/İKİLİ) SİSTEM MANTIĞI ---
+                komp = None
+                komp_carpani = 1
+                
+                # 1. Adım: Tek başına tüm yükü karşılayabilen en küçük kompresörü ara
+                uygun_komp_tek = [k for k in db["kompresorler"] if float(k.get("kapasite_kw", 0)) >= gerekli_kw]
+                if uygun_komp_tek:
+                    komp = min(uygun_komp_tek, key=lambda x: float(x["kapasite_kw"]))
+                    komp_carpani = 1
+                else:
+                    # 2. Adım: Tek başına yetmiyorsa, yükün yarısını karşılayabilecek modelden 2 adet öner (Çift kompresörlü sistem)
+                    yarim_yuk = gerekli_kw / 2.0
+                    uygun_komp_ikili = [k for k in db["kompresorler"] if float(k.get("kapasite_kw", 0)) >= yarim_yuk]
+                    if uygun_komp_ikili:
+                        komp = min(uygun_komp_ikili, key=lambda x: float(x["kapasite_kw"]))
+                        komp_carpani = 2
+                    elif db["kompresorler"]:
+                        # 3. Adım: Hiçbiri yetmiyorsa veritabanındaki en büyük kompresörü alıp gerekli sayıda çoklu at
+                        komp = max(db["kompresorler"], key=lambda x: float(x["kapasite_kw"]))
+                        komp_carpani = math.ceil(gerekli_kw / float(komp.get("kapasite_kw", 1)))
+
+                uygun_evap = [e for e in db["evaporatorler"] if float(e.get("min_kw", 0)) <= gerekli_kw <= float(e.get("max_kw", 999))]
+                evap = uygun_evap[0] if uygun_evap else (db["evaporatorler"][0] if db["evaporatorler"] else None)
                 panel_veri = next((p for p in db["paneller"] if str(p["kalinlik_mm"]) == str(secilen_panel_kalinlik)), None)
                 
                 brut_panel_m2 = (sonuclar['toplam_panel_m2'] + ekstra_duvar_alani) * 1.08
@@ -387,10 +408,15 @@ if db:
                 
                 if komp:
                     m, md = komp.get('marka',''), komp.get('model_adi','')
-                    komp_kw = float(komp.get('kapasite_kw', 0))
-                    komp_hp = komp_kw * 1.36 
-                    render_tooltip_box("Kompresör Grubu", m, md, get_teknik_detay(m, komp_kw), f" | Kapasite: {komp_kw:.1f} kW ({komp_hp:.1f} HP)")
-                    onerilen_sepet_listesi.append({"Kategori": "Kompresör", "Marka/Model": f"{m} - {md}", "Fiyat": get_gercek_fiyat_tl(komp)})
+                    komp_tek_kw = float(komp.get('kapasite_kw', 0))
+                    toplam_komp_kw = komp_tek_kw * komp_carpani
+                    toplam_komp_hp = toplam_komp_kw * 1.36 
+                    
+                    komp_baslik = f"{m} - {md}" if komp_carpani == 1 else f"{m} - {md} ({komp_carpani} Adet)"
+                    toplam_komp_fiyat = get_gercek_fiyat_tl(komp) * komp_carpani
+                    
+                    render_tooltip_box("Kompresör Grubu", m, komp_baslik, get_teknik_detay(m, komp_tek_kw), f" | Toplam Kapasite: {toplam_komp_kw:.1f} kW ({toplam_komp_hp:.1f} HP) - {komp_carpani} Adet")
+                    onerilen_sepet_listesi.append({"Kategori": "Kompresör", "Marka/Model": komp_baslik, "Fiyat": toplam_komp_fiyat})
                 
                 if evap:
                     m, md = evap.get('marka',''), evap.get('model_adi','')
@@ -401,7 +427,7 @@ if db:
                 
                 if panel_veri:
                     panel_ad = f"{secilen_panel_kalinlik} mm PUR/PIR"
-                    duvar_metni = "(Fire ve Ara Duvar Dahil)" if bolme_istiyor_mu else "(Fire Dahil)"
+                    duvar_metni = "(Fire وجه Ara Duvar Dahil)" if bolme_istiyor_mu else "(Fire Dahil)"
                     render_tooltip_box("Panel", "Arces PUR", panel_ad, get_teknik_detay("Arces PUR"), f" | Miktar: {brut_panel_m2:.1f} m² {duvar_metni}")
                     onerilen_sepet_listesi.append({"Kategori": "İzolasyon Paneli", "Marka/Model": f"{secilen_panel_kalinlik} mm Panel ({brut_panel_m2:.1f} m²)", "Fiyat": float(panel_veri["fiyat_eur_m2"]) * brut_panel_m2 * GUNCEL_KUR_EUR})
                 
