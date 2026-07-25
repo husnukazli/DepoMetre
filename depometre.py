@@ -12,7 +12,7 @@ SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-st.set_page_config(page_title="Arçes Mühendislik - Konfigüratör", page_icon="❄️", layout="wide")
+st.set_page_config(page_title="Arces Mühendislik - Konfigüratör", page_icon="❄️", layout="wide")
 
 st.markdown("""
     <style>
@@ -88,7 +88,7 @@ with col_logo:
     if os.path.exists("logo.png"):
         st.image("logo.png", width=250)
     else:
-        st.markdown("## 🏢 ARÇES MÜHENDİSLİK")
+        st.markdown("## ARCES MÜHENDİSLİK")
 
 with col_auth:
     if not is_logged_in:
@@ -296,7 +296,7 @@ with secilen_ana_sekme[0]:
                     try:
                         pdf_bytes = create_pdf(df_sepet, toplam_tutar)
                         st.download_button(
-                            label="📄 PDF Olarak İndir (Arçes Teklifi)",
+                            label="📄 PDF Olarak İndir (Arces Teklifi)",
                             data=pdf_bytes,
                             file_name="Arces_Soguk_Oda_Teklifi.pdf",
                             mime="application/pdf",
