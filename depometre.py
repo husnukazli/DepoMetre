@@ -111,6 +111,7 @@ if 'sepet' not in st.session_state: st.session_state['sepet'] = []
 if 'kullanici_rol' not in st.session_state: st.session_state['kullanici_rol'] = 'ziyaretci' 
 if 'kullanici_email' not in st.session_state: st.session_state['kullanici_email'] = ''
 if 'oneri_sepete_eklendi' not in st.session_state: st.session_state['oneri_sepete_eklendi'] = False
+if 'hesaplama_yapildi' not in st.session_state: st.session_state['hesaplama_yapildi'] = False
 
 is_logged_in = st.session_state['kullanici_rol'] in ['bayi', 'admin']
 is_admin = st.session_state['kullanici_rol'] == 'admin'
@@ -281,6 +282,7 @@ with col_auth:
             st.session_state['kullanici_rol'] = 'ziyaretci'
             st.session_state['kullanici_email'] = ''
             st.session_state['sepet'] = []
+            st.session_state['hesaplama_yapildi'] = False
             st.rerun()
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -341,9 +343,17 @@ if db:
             panel_secenekleri = [p["kalinlik_mm"] for p in db["paneller"]]
             secilen_panel_kalinlik = st.selectbox("İzolasyon Paneli (mm)", panel_secenekleri, index=panel_secenekleri.index(tavsiye_panel) if tavsiye_panel in panel_secenekleri else 0)
 
-        if st.button("Sistem Hesapla ve Öner", type="primary"): 
-            st.session_state['hesaplama_yapildi'] = True
-            st.session_state['oneri_sepete_eklendi'] = False
+        btn_col1, btn_col2 = st.columns([2, 8])
+        with btn_col1:
+            if st.button("Sistem Hesapla ve Öner", type="primary"): 
+                st.session_state['hesaplama_yapildi'] = True
+                st.session_state['oneri_sepete_eklendi'] = False
+        with btn_col2:
+            if st.session_state.get('hesaplama_yapildi', False):
+                if st.button("🧹 Hesaplamayı Temizle"):
+                    st.session_state['hesaplama_yapildi'] = False
+                    st.session_state['oneri_sepete_eklendi'] = False
+                    st.rerun()
             
         if st.session_state.get('hesaplama_yapildi', False):
             sonuclar = hesapla_sogutma_yuku(en, boy, yukseklik, t_dis, t_ic, secilen_panel_kalinlik, urun_tipi, urun_miktar_kg, kapi_acilis, db)
@@ -385,7 +395,8 @@ if db:
                 
                 if panel_veri:
                     panel_ad = f"{secilen_panel_kalinlik} mm PUR/PIR"
-                    render_tooltip_box("Panel", "Arces PUR", panel_ad, get_teknik_detay("Arces PUR"), f" | Miktar: {brut_panel_m2:.1f} m² (Fire ve Ara Duvar Dahil)")
+                    duvar_metni = "(Fire ve Ara Duvar Dahil)" if bolme_istiyor_mu else "(Fire Dahil)"
+                    render_tooltip_box("Panel", "Arces PUR", panel_ad, get_teknik_detay("Arces PUR"), f" | Miktar: {brut_panel_m2:.1f} m² {duvar_metni}")
                     onerilen_sepet_listesi.append({"Kategori": "İzolasyon Paneli", "Marka/Model": f"{secilen_panel_kalinlik} mm Panel ({brut_panel_m2:.1f} m²)", "Fiyat": float(panel_veri["fiyat_eur_m2"]) * brut_panel_m2 * GUNCEL_KUR_EUR})
                 
                 kapi_fiyat_tl = ((450 if "Sürgülü" in kapi_tipi else 325) + (50 if t_ic < 0 else 0)) * GUNCEL_KUR_EUR * kapi_sayisi
