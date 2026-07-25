@@ -16,11 +16,13 @@ st.set_page_config(page_title="Arces Mühendislik - Konfigüratör", page_icon="
 
 st.markdown("""
     <style>
-    /* Streamlit'in varsayılan beyaz üst barını tamamen gizle */
-    [data-testid="stHeader"] {display: none;}
-    
-    /* Üst menü gidince kalan boşluğu daralt, logoyu yukarı yasla */
-    .block-container {padding-top: 2rem;}
+    /* BEYAZ ÜST BARI VE STREAMLIT İZLERİNİ KÖKTEN GİZLEME */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    .stApp > header {display: none !important;}
+    [data-testid="stHeader"] {display: none !important;}
+    .block-container {padding-top: 2rem !important; margin-top: 0 !important;}
     
     .stDataFrame {font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}
     h1, h2, h3 {color: #0284c7; font-weight: 600;}
