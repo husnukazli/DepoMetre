@@ -53,6 +53,11 @@ def veritabani_verilerini_cek():
     }
 
 db = veritabani_verilerini_cek()
+
+# --- GEÇİCİ KONTROL KODU BAŞLANGICI ---
+st.write("Veritabanından Gelen Veriler:", db)
+# --- GEÇİCİ KONTROL KODU BİTİŞİ ---
+
 GUNCEL_KUR_EUR = 38.50 
 
 # ==========================================
