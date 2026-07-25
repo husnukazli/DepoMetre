@@ -16,6 +16,12 @@ st.set_page_config(page_title="Arces Mühendislik - Konfigüratör", page_icon="
 
 st.markdown("""
     <style>
+    /* Streamlit'in varsayılan beyaz üst barını tamamen gizle */
+    [data-testid="stHeader"] {display: none;}
+    
+    /* Üst menü gidince kalan boşluğu daralt, logoyu yukarı yasla */
+    .block-container {padding-top: 2rem;}
+    
     .stDataFrame {font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}
     h1, h2, h3 {color: #0284c7; font-weight: 600;}
     .fiyat-gizli {color: #eab308; font-weight: bold;}
