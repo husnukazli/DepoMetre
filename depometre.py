@@ -19,6 +19,7 @@ st.markdown("""
     .stDataFrame {font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}
     h1, h2, h3 {color: #0284c7; font-weight: 600;}
     .fiyat-gizli {color: #eab308; font-weight: bold;}
+    .auth-kutu {border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f8fafc; margin-bottom: 20px;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -26,7 +27,7 @@ st.markdown("""
 if 'sepet' not in st.session_state:
     st.session_state['sepet'] = []
 if 'kullanici_rol' not in st.session_state:
-    st.session_state['kullanici_rol'] = 'ziyaretci' # ziyaretci, bayi, admin
+    st.session_state['kullanici_rol'] = 'ziyaretci' 
 if 'kullanici_email' not in st.session_state:
     st.session_state['kullanici_email'] = ''
 
@@ -34,40 +35,35 @@ is_logged_in = st.session_state['kullanici_rol'] in ['bayi', 'admin']
 is_admin = st.session_state['kullanici_rol'] == 'admin'
 
 # ==========================================
-# 2. PDF OLUŞTURMA FONKSİYONU (ANTETLİ)
+# 2. PDF OLUŞTURMA FONKSİYONU
 # ==========================================
 def create_pdf(sepet_verisi, toplam):
     pdf = FPDF()
     pdf.add_page()
     
-    # Font Yükleme
     has_font = os.path.exists("arial.ttf")
     if has_font:
         pdf.add_font("ArialTR", "", "arial.ttf", uni=True)
         pdf.add_font("ArialTR_B", "B", "arial.ttf", uni=True)
     
-    # ANTET (BAŞLIK VE LOGO)
     try:
         if os.path.exists("logo.png"):
             pdf.image("logo.png", x=10, y=8, w=40)
     except:
-        pass # Logo yoksa atla
+        pass 
         
     pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 20)
     pdf.cell(0, 10, txt="ARCES MUHENDISLIK", ln=True, align='C')
-    
     pdf.set_font("ArialTR" if has_font else "Arial", "", 12)
     pdf.cell(0, 6, txt="Soguk Hava Deposu Konfigurasyon Teklifi", ln=True, align='C')
     pdf.cell(0, 6, txt="Web: www.arcesmuhendislik.com", ln=True, align='C')
     pdf.ln(15)
         
-    # Tablo Başlıkları
     pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 12)
     pdf.cell(50, 10, txt="Kategori", border=1)
     pdf.cell(100, 10, txt="Marka / Model", border=1)
     pdf.cell(40, 10, txt="Fiyat (TL)", border=1, ln=True)
     
-    # Tablo İçeriği
     pdf.set_font("ArialTR" if has_font else "Arial", "", 12)
     for index, row in sepet_verisi.iterrows():
         pdf.cell(50, 10, txt=str(row['Kategori']), border=1)
@@ -83,24 +79,26 @@ def sepetten_cikar(uid):
     st.session_state['sepet'] = [item for item in st.session_state['sepet'] if item.get('sepet_id') != uid]
 
 # ==========================================
-# 3. YAN MENÜ (SİDEBAR) - ÜYELİK & LOGO
+# 3. EN ÜST ALAN: MARKA VE KULLANICI GİRİŞİ
 # ==========================================
-with st.sidebar:
+st.markdown("<div class='auth-kutu'>", unsafe_allow_html=True)
+col_logo, col_auth = st.columns([1, 2])
+
+with col_logo:
     if os.path.exists("logo.png"):
-        st.image("logo.png", use_container_width=True)
+        st.image("logo.png", width=250)
     else:
         st.markdown("## 🏢 ARÇES MÜHENDİSLİK")
+
+with col_auth:
+    if not is_logged_in:
+        auth_sekmeler = st.tabs(["Giriş Yap", "Kayıt Ol", "Şifremi Unuttum"])
         
-    st.markdown("---")
-    
-    if st.session_state['kullanici_rol'] == 'ziyaretci':
-        st.write("🔒 **Fiyatları görmek ve teklif oluşturmak için giriş yapın.**")
-        tab_giris, tab_kayit = st.tabs(["Giriş Yap", "Kayıt Ol"])
-        
-        with tab_giris:
-            g_email = st.text_input("E-Posta", key="g_email")
-            g_sifre = st.text_input("Şifre", type="password", key="g_sifre")
-            if st.button("Giriş", use_container_width=True):
+        with auth_sekmeler[0]:
+            col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
+            g_email = col_g1.text_input("E-Posta", key="g_email", label_visibility="collapsed", placeholder="E-Posta Adresiniz")
+            g_sifre = col_g2.text_input("Şifre", type="password", key="g_sifre", label_visibility="collapsed", placeholder="Şifreniz")
+            if col_g3.button("Giriş Yap", use_container_width=True):
                 user_req = supabase.table("kullanicilar").select("*").eq("email", g_email).eq("sifre", g_sifre).execute()
                 if user_req.data:
                     user_data = user_req.data[0]
@@ -109,27 +107,50 @@ with st.sidebar:
                         st.session_state['kullanici_email'] = user_data['email']
                         st.rerun()
                     else:
-                        st.warning("Hesabınız henüz yönetici tarafından onaylanmamış.")
+                        st.warning("Hesabınız onay bekliyor.")
                 else:
                     st.error("Hatalı e-posta veya şifre.")
                     
-        with tab_kayit:
-            k_email = st.text_input("E-Posta (Kayıt)")
-            k_sifre = st.text_input("Şifre (Kayıt)", type="password")
-            if st.button("Kayıt Ol", use_container_width=True):
+        with auth_sekmeler[1]:
+            col_k1, col_k2, col_k3 = st.columns([2, 2, 1])
+            k_email = col_k1.text_input("E-Posta", key="k_email", label_visibility="collapsed", placeholder="E-Posta Adresiniz")
+            k_sifre = col_k2.text_input("Şifre", type="password", key="k_sifre", label_visibility="collapsed", placeholder="Şifre Belirleyin")
+            if col_k3.button("Kayıt Ol", use_container_width=True):
                 try:
                     supabase.table("kullanicilar").insert({"email": k_email, "sifre": k_sifre}).execute()
-                    st.success("Kayıt başarılı! Yönetici onayından sonra giriş yapabilirsiniz.")
-                except Exception as e:
-                    st.error("Bu e-posta zaten kayıtlı olabilir.")
+                    st.success("Kayıt başarılı! Yönetici onayından sonra girebilirsiniz.")
+                except:
+                    st.error("Bu e-posta sistemde zaten var.")
+                    
+        with auth_sekmeler[2]:
+            st.write("Şifrenizi unuttuysanız sistem yöneticisine sıfırlama talebi gönderebilirsiniz.")
+            col_u1, col_u2 = st.columns([3, 1])
+            u_email = col_u1.text_input("E-Posta", key="u_email", label_visibility="collapsed", placeholder="Kayıtlı E-Posta Adresiniz")
+            if col_u2.button("Talep Gönder", use_container_width=True):
+                check = supabase.table("kullanicilar").select("id").eq("email", u_email).execute()
+                if check.data:
+                    supabase.table("kullanicilar").update({"sifre_sifirlama_istendi": True}).eq("email", u_email).execute()
+                    st.success("Talebiniz yöneticiye iletildi. Geçici şifreniz size bildirilecektir.")
+                else:
+                    st.error("Sistemde böyle bir e-posta bulunamadı.")
     else:
-        st.success(f"Hoş geldiniz, {st.session_state['kullanici_email']}")
-        st.info(f"Yetki: {st.session_state['kullanici_rol'].upper()}")
-        if st.button("Çıkış Yap", use_container_width=True):
+        st.success(f"Hoş geldiniz, {st.session_state['kullanici_email']} ({st.session_state['kullanici_rol'].upper()})")
+        col_btn1, col_btn2 = st.columns([1, 1])
+        
+        with st.expander("🔑 Şifremi Değiştir"):
+            yeni_sifre = st.text_input("Yeni Şifreniz", type="password")
+            if st.button("Şifreyi Güncelle"):
+                supabase.table("kullanicilar").update({"sifre": yeni_sifre}).eq("email", st.session_state['kullanici_email']).execute()
+                st.success("Şifreniz başarıyla değiştirildi!")
+                
+        if st.button("🚪 Çıkış Yap", type="secondary"):
             st.session_state['kullanici_rol'] = 'ziyaretci'
             st.session_state['kullanici_email'] = ''
             st.session_state['sepet'] = []
             st.rerun()
+
+st.markdown("</div>", unsafe_allow_html=True)
+st.divider()
 
 # ==========================================
 # 4. VERİTABANI ÖN YÜKLEME
@@ -137,7 +158,6 @@ with st.sidebar:
 try:
     kategoriler_db = supabase.table("kategoriler").select("*").execute().data
     markalar_db = supabase.table("markalar").select("*").execute().data
-    # Sadece 'aktif_mi' = True olan ürünleri getiriyoruz (Kaldırılmışları gizler)
     parcalar_db = supabase.table("parcalar").select("*").eq("aktif_mi", True).execute().data
     veriler_tamam = bool(kategoriler_db and parcalar_db)
 except Exception as e:
@@ -155,9 +175,8 @@ secilen_ana_sekme = st.tabs(ana_sekmeler)
 
 # ----------------- KONFİGÜRATÖR SEKMESİ -----------------
 with secilen_ana_sekme[0]:
-    st.title("❄️ Soğuk Hava Deposu Konfigüratörü")
     if not is_logged_in:
-        st.warning("⚠️ Ziyaretçi Modundasınız: Sistem kapasitesini hesaplayabilir ve malzeme listesini oluşturabilirsiniz ancak **fiyatları görmek ve teklif (PDF) almak için üye girişi yapmalısınız.**")
+        st.warning("⚠️ Ziyaretçi Modu: Sistemi test edebilirsiniz ancak fiyatları görmek ve teklif (PDF) almak için yukarıdan üye girişi yapmalısınız.")
         
     if veriler_tamam:
         # --- HACİM VE KAPASİTE HESABI ---
@@ -176,9 +195,8 @@ with secilen_ana_sekme[0]:
             btu_carpan = 350 if hedef_sicaklik == "+4 Derece (Soğuk)" else 550
             gerekli_btu = int(hacim * btu_carpan)
             
-            st.info(f"**Toplam Hacim:** {hacim:.2f} m³ | **Zemin:** {zemin_alani:.2f} m² | **İzolasyon Yüzeyi:** {toplam_yuzey_alani:.2f} m² \n\n **İhtiyaç:** {gerekli_btu:,} BTU/h")
+            st.info(f"**Toplam Hacim:** {hacim:.2f} m³ | **İzolasyon Yüzeyi:** {toplam_yuzey_alani:.2f} m² | **İhtiyaç:** {gerekli_btu:,} BTU/h")
 
-            # Akıllı Kompresör Önerisi
             komp_kategori_id = next((k["id"] for k in kategoriler_db if "Kompresör" in k["kategori_adi"]), None)
             if komp_kategori_id:
                 kompresorler = sorted([p for p in parcalar_db if p["kategori_id"] == komp_kategori_id and p["btu_kapasite"] > 0], key=lambda x: x["btu_kapasite"])
@@ -193,7 +211,6 @@ with secilen_ana_sekme[0]:
                                 if fazla < en_az_fazla:
                                     en_az_fazla = fazla
                                     en_iyi_secim = (komp, adet)
-                    
                     if not en_iyi_secim:
                         en_iyi_secim = (kompresorler[-1], 2)
                         
@@ -206,9 +223,9 @@ with secilen_ana_sekme[0]:
         # --- PARÇA SEÇİMİ (KATALOG) ---
         st.header("2. Sistem Bileşenleri")
         kategori_isimleri = [k["kategori_adi"] for k in kategoriler_db]
-        sekmeler = st.tabs(kategori_isimleri)
+        sekmeler_kat = st.tabs(kategori_isimleri)
         
-        for index, sekme in enumerate(sekmeler):
+        for index, sekme in enumerate(sekmeler_kat):
             with sekme:
                 kategori_id = kategoriler_db[index]["id"]
                 kategori_adi = kategoriler_db[index]["kategori_adi"]
@@ -231,11 +248,10 @@ with secilen_ana_sekme[0]:
                         p_col1.write(f"**{marka_adi} - {parca['model_adi']}** {tavsiye_etiketi}")
                         p_col2.write(f"Kapasite: {parca['btu_kapasite']:,} BTU" if parca["btu_kapasite"] > 0 else "")
                         
-                        # LOGİN KONTROLÜ: Ziyaretçiden Fiyat Gizleme
                         if is_logged_in:
                             p_col3.write(f"Fiyat: {gosterilecek_fiyat:,.2f} TL")
                         else:
-                            p_col3.markdown("<span class='fiyat-gizli'>🔒 Üye Girişi Gerekli</span>", unsafe_allow_html=True)
+                            p_col3.markdown("Fiyat: <span class='fiyat-gizli'>🔒 Giriş Gerekli</span>", unsafe_allow_html=True)
                         
                         if p_col4.button("Sepete Ekle", key=f"ekle_{parca['id']}"):
                             st.session_state['sepet'].append({
@@ -260,11 +276,10 @@ with secilen_ana_sekme[0]:
                 s_col1.write(item['Kategori'])
                 s_col2.write(item['Marka/Model'])
                 
-                # Sepette de fiyat gizleme
                 if is_logged_in:
                     s_col3.write(f"{item['Fiyat']:,.2f} TL")
                 else:
-                    s_col3.write("🔒 Gizli")
+                    s_col3.markdown("<span class='fiyat-gizli'>Fiyat: 🔒 Gizli</span>", unsafe_allow_html=True)
                     
                 s_col4.button("❌ Çıkar", key=f"sil_{item['sepet_id']}", on_click=sepetten_cikar, args=(item['sepet_id'],))
                 
@@ -295,7 +310,7 @@ with secilen_ana_sekme[0]:
                         st.session_state['sepet'] = []
                         st.rerun()
             else:
-                st.error("🔒 Sistemin toplam maliyetini görmek ve PDF Teklif alabilmek için lütfen sol menüden yönetici onaylı hesabınızla giriş yapınız.")
+                st.error("🔒 Sistemin toplam maliyetini görmek ve PDF Teklif alabilmek için lütfen yukarıdan onaylı hesabınızla giriş yapınız.")
                 if st.button("Tüm Sepeti Temizle", type="secondary", use_container_width=True):
                     st.session_state['sepet'] = []
                     st.rerun()
@@ -306,40 +321,51 @@ with secilen_ana_sekme[0]:
 if is_admin:
     with secilen_ana_sekme[1]:
         st.header("⚙️ Yönetici (Admin) Paneli")
-        admin_tab1, admin_tab2 = st.tabs(["Kullanıcı Onayları", "Ürün Yönetimi (Gizle/Kaldır)"])
+        admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Kullanıcı Onayları", "Ürün Yönetimi (Gizle)", "Şifre Sıfırlama Talepleri"])
         
         # 1. KULLANICI ONAYLARI
         with admin_tab1:
-            st.subheader("Onay Bekleyen Kullanıcılar")
-            bekleyenler_req = supabase.table("kullanicilar").select("*").eq("onayli_mi", False).execute()
-            if bekleyenler_req.data:
-                for usr in bekleyenler_req.data:
+            bekleyenler = supabase.table("kullanicilar").select("*").eq("onayli_mi", False).execute().data
+            if bekleyenler:
+                for usr in bekleyenler:
                     u_col1, u_col2 = st.columns([3,1])
                     u_col1.write(f"📧 **{usr['email']}** (Kayıt: {usr['olusturma_tarihi'][:10]})")
                     if u_col2.button("✅ Onayla", key=f"onay_{usr['id']}"):
                         supabase.table("kullanicilar").update({"onayli_mi": True}).eq("id", usr['id']).execute()
-                        st.success("Kullanıcı onaylandı!")
+                        st.success("Onaylandı!")
                         st.rerun()
             else:
-                st.info("Onay bekleyen yeni kayıt bulunmuyor.")
+                st.info("Onay bekleyen yeni kayıt yok.")
                 
-        # 2. ÜRÜN YÖNETİMİ (Kaldırma/Gizleme)
+        # 2. ÜRÜN YÖNETİMİ
         with admin_tab2:
-            st.subheader("Ürün Kataloğu Yönetimi")
-            st.write("Aşağıdaki listeden satışı duran veya katalogdan kaldırmak istediğiniz ürünleri gizleyebilirsiniz.")
-            
+            st.write("Aşağıdan satışı duran ürünleri gizleyebilirsiniz.")
             tum_parcalar = supabase.table("parcalar").select("*").execute().data
             if tum_parcalar:
                 for parca in tum_parcalar:
                     durum = "🟢 Aktif" if parca['aktif_mi'] else "🔴 Gizlendi"
                     p_col1, p_col2 = st.columns([4,1])
                     p_col1.write(f"{durum} | **Model:** {parca['model_adi']} (Fiyat: {parca['fiyat']} TL)")
-                    
                     if parca['aktif_mi']:
-                        if p_col2.button("🚫 Gizle (Kaldır)", key=f"gizle_{parca['id']}"):
+                        if p_col2.button("🚫 Gizle", key=f"gizle_{parca['id']}"):
                             supabase.table("parcalar").update({"aktif_mi": False}).eq("id", parca['id']).execute()
                             st.rerun()
                     else:
-                        if p_col2.button("✅ Geri Al (Aktif)", key=f"aktif_{parca['id']}"):
+                        if p_col2.button("✅ Aktif Et", key=f"aktif_{parca['id']}"):
                             supabase.table("parcalar").update({"aktif_mi": True}).eq("id", parca['id']).execute()
                             st.rerun()
+
+        # 3. ŞİFRE SIFIRLAMA TALEPLERİ
+        with admin_tab3:
+            sifre_isteyenler = supabase.table("kullanicilar").select("*").eq("sifre_sifirlama_istendi", True).execute().data
+            if sifre_isteyenler:
+                st.warning("Aşağıdaki kullanıcılar şifrelerini unuttu. Butona basarak şifrelerini geçici olarak 'arces1234' yapabilirsiniz.")
+                for usr in sifre_isteyenler:
+                    s_col1, s_col2 = st.columns([3, 1])
+                    s_col1.write(f"📧 **{usr['email']}** şifre sıfırlama bekliyor.")
+                    if s_col2.button("Geçici Şifre Ata", key=f"sifirla_{usr['id']}"):
+                        supabase.table("kullanicilar").update({"sifre": "arces1234", "sifre_sifirlama_istendi": False}).eq("id", usr['id']).execute()
+                        st.success(f"{usr['email']} için yeni şifre: arces1234")
+                        st.rerun()
+            else:
+                st.info("Şifre sıfırlama talebi bulunmuyor.")
