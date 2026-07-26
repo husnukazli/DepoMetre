@@ -185,7 +185,7 @@ def render_tooltip_box(kategori, marka, model, detay_html, extra_text=""):
 # ==========================================
 # 2. PDF VE SEPET FONKSİYONLARI 
 # ==========================================
-def create_pdf(sepet_verisi, toplam, musteri_bilgisi=None):
+def create_pdf(sepet_verisi, toplam, hazirlayan_bilgisi="", proje_adi=""):
     pdf = FPDF()
     pdf.add_page()
     has_font = os.path.exists("arial.ttf")
@@ -193,9 +193,12 @@ def create_pdf(sepet_verisi, toplam, musteri_bilgisi=None):
         pdf.add_font("ArialTR", "", "arial.ttf", uni=True)
         pdf.add_font("ArialTR_B", "B", "arial.ttf", uni=True)
     else:
-        if musteri_bilgisi:
+        if hazirlayan_bilgisi:
             for tr, eng in zip("şŞıİçÇöÖğĞüÜ", "sSiIcCoOgGuU"):
-                musteri_bilgisi = musteri_bilgisi.replace(tr, eng)
+                hazirlayan_bilgisi = hazirlayan_bilgisi.replace(tr, eng)
+        if proje_adi:
+            for tr, eng in zip("şŞıİçÇöÖğĞüÜ", "sSiIcCoOgGuU"):
+                proje_adi = proje_adi.replace(tr, eng)
 
     try:
         if os.path.exists("logo.png"): pdf.image("logo.png", x=10, y=8, w=40)
@@ -208,10 +211,13 @@ def create_pdf(sepet_verisi, toplam, musteri_bilgisi=None):
     pdf.cell(0, 6, txt="Web: www.arcesmuhendislik.com", ln=True, align='C')
     pdf.ln(10)
     
-    if musteri_bilgisi:
-        pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 12)
-        pdf.cell(0, 8, txt=f"Sayin: {musteri_bilgisi}", ln=True, align='L')
-        pdf.ln(5)
+    # --- HAZIRLAYAN VE MÜŞTERİ (PROJE) BİLGİLERİ HEADER'I ---
+    pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 11)
+    if hazirlayan_bilgisi:
+        pdf.cell(0, 6, txt=f"Hazirlayan Bayi/Firma  : {hazirlayan_bilgisi}", ln=True, align='L')
+    if proje_adi:
+        pdf.cell(0, 6, txt=f"Musteri / Proje Adi      : {proje_adi}", ln=True, align='L')
+    pdf.ln(5)
         
     pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 12)
     pdf.cell(40, 10, txt="Kategori", border=1)
@@ -580,46 +586,59 @@ if db:
             if is_logged_in:
                 st.success(f"### 💰 Toplam Maliyet: {toplam_tutar:,.2f} TL")
                 
-                # --- PROJE KAYDETME BÖLÜMÜ ---
+                # --- PROJE KAYDETME VE PDF BÖLÜMÜ ---
                 st.markdown("<div class='info-kutu'>", unsafe_allow_html=True)
-                st.write("#### 💾 Bu Sepeti Proje Olarak Kaydet")
-                c_proje1, c_proje2 = st.columns([3, 1])
-                proje_adi = c_proje1.text_input("Müşteri / Proje Adı", placeholder="Örn: Ahmet Bey Et Deposu")
-                if c_proje2.button("Sisteme Kaydet (CRM)", use_container_width=True):
-                    if proje_adi.strip() == "":
-                        st.error("Lütfen kaydetmeden önce projeye bir isim verin.")
-                    else:
-                        try:
-                            supabase.table("teklifler").insert({
-                                "kullanici_email": st.session_state['kullanici_email'],
-                                "proje_adi": proje_adi,
-                                "toplam_tutar": float(toplam_tutar),
-                                "sepet_detayi": st.session_state['sepet']
-                            }).execute()
-                            st.success(f"✅ '{proje_adi}' projesi başarıyla profilinize kaydedildi!")
-                        except Exception as e:
-                            st.error("Veritabanına kaydedilirken hata oluştu. Supabase'deki 'teklifler' tablosunu kontrol edin.")
-                st.markdown("</div>", unsafe_allow_html=True)
+                st.write("#### 💾 CRM'e Kaydet veya PDF Al")
+                proje_adi_input = st.text_input("Müşteri veya Proje Adı (PDF ve Kayıt İçin):", placeholder="Örn: Devrek Seracılık AŞ")
                 
-                col_pdf, col_temizle = st.columns([1, 1])
-                with col_pdf:
-                    musteri_metni = ""
+                c_btn_kaydet, c_btn_pdf, c_btn_temizle = st.columns([2, 2, 2])
+                
+                with c_btn_kaydet:
+                    if st.button("💾 Sisteme Kaydet", use_container_width=True):
+                        if proje_adi_input.strip() == "":
+                            st.error("Lütfen kaydetmeden önce projeye bir isim verin.")
+                        else:
+                            try:
+                                supabase.table("teklifler").insert({
+                                    "kullanici_email": st.session_state['kullanici_email'],
+                                    "proje_adi": proje_adi_input,
+                                    "toplam_tutar": float(toplam_tutar),
+                                    "sepet_detayi": st.session_state['sepet']
+                                }).execute()
+                                st.success(f"✅ '{proje_adi_input}' başarıyla kaydedildi!")
+                            except Exception as e:
+                                st.error("Veritabanına kaydedilirken hata oluştu.")
+                
+                with c_btn_pdf:
+                    hazirlayan_metni = ""
                     try:
                         mevcut_k = supabase.table("kullanicilar").select("firma_adi, yetkili_kisi").eq("id", st.session_state['kullanici_id']).execute().data[0]
                         yetkili = mevcut_k.get("yetkili_kisi", "").strip()
                         firma = mevcut_k.get("firma_adi", "").strip()
-                        if yetkili and firma: musteri_metni = f"{yetkili} ({firma})"
-                        elif yetkili: musteri_metni = yetkili
-                        elif firma: musteri_metni = firma
+                        if yetkili and firma: hazirlayan_metni = f"{firma} - {yetkili}"
+                        elif yetkili: hazirlayan_metni = yetkili
+                        elif firma: hazirlayan_metni = firma
+                    except: pass
+                    
+                    dosya_adi = f"{proje_adi_input.replace(' ', '_')}.pdf" if proje_adi_input.strip() else "Soguk_Oda_Teklifi.pdf"
+                    
+                    try:
+                        st.download_button(
+                            label="📄 PDF İndir", 
+                            data=create_pdf(df_sepet, toplam_tutar, hazirlayan_metni, proje_adi_input), 
+                            file_name=dosya_adi, 
+                            mime="application/pdf", 
+                            use_container_width=True
+                        )
                     except: pass
 
-                    try: st.download_button("📄 PDF Teklif İndir", create_pdf(df_sepet, toplam_tutar, musteri_metni), "Teklif.pdf", "application/pdf", use_container_width=True)
-                    except: pass
-                with col_temizle:
-                    if st.button("Tüm Sepeti Temizle", use_container_width=True): 
+                with c_btn_temizle:
+                    if st.button("🗑️ Sepeti Temizle", use_container_width=True): 
                         st.session_state['sepet'] = []
                         st.session_state['oneri_sepete_eklendi'] = False
                         st.rerun()
+                        
+                st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.error("🔒 Sistemin toplam maliyetini görmek, PDF teklif almak ve projeyi kaydetmek için lütfen giriş yapın.")
                 if st.button("Sepeti Temizle"): 
@@ -636,7 +655,6 @@ if db:
             st.header("👤 Profil ve Ticari Bilgilerim")
             
             try:
-                # Kullanıcı bilgilerini çek
                 mevcut_kullanici = supabase.table("kullanicilar").select("*").eq("email", st.session_state['kullanici_email']).execute().data[0]
                 
                 with st.form("profil_guncelle_form"):
@@ -675,12 +693,12 @@ if db:
                                 st.dataframe(display_df, use_container_width=True)
                             
                                 # --- PDF Dışa Aktarma İçin Müşteri İsim Metni Hazırlama ---
-                                musteri_metni = ""
+                                hazirlayan_metni = ""
                                 yetkili = mevcut_kullanici.get("yetkili_kisi", "").strip()
                                 firma = mevcut_kullanici.get("firma_adi", "").strip()
-                                if yetkili and firma: musteri_metni = f"{yetkili} ({firma})"
-                                elif yetkili: musteri_metni = yetkili
-                                elif firma: musteri_metni = firma
+                                if yetkili and firma: hazirlayan_metni = f"{firma} - {yetkili}"
+                                elif yetkili: hazirlayan_metni = yetkili
+                                elif firma: hazirlayan_metni = firma
                             
                                 st.write("")
                                 c_btn_pdf, c_btn_del = st.columns([1, 1])
@@ -689,7 +707,7 @@ if db:
                                     try:
                                         st.download_button(
                                             label="📄 PDF Olarak İndir", 
-                                            data=create_pdf(p_df, float(proje.get('toplam_tutar', 0)), musteri_metni), 
+                                            data=create_pdf(p_df, float(proje.get('toplam_tutar', 0)), hazirlayan_metni, proje_ismi), 
                                             file_name=f"{proje_ismi.replace(' ', '_')}.pdf", 
                                             mime="application/pdf", 
                                             key=f"pdf_kendi_{proje['id']}",
@@ -712,7 +730,6 @@ if db:
         with secilen_ana_sekme[admin_sekme_index]:
             st.header("⚙️ Yönetici (Admin) Paneli")
             
-            # --- Kullanıcıları Baştan Çekiyoruz Ki Tüm Sekmelerde Kullanalım ---
             try:
                 tum_kullanicilar = supabase.table("kullanicilar").select("*").execute().data
                 user_map = {u['email']: u for u in tum_kullanicilar} if tum_kullanicilar else {}
@@ -778,14 +795,14 @@ if db:
                                     st.dataframe(display_df, use_container_width=True)
                                 
                                     # --- PDF Dışa Aktarma İçin Bayi/Müşteri Kimliğini Eşleme ---
-                                    musteri_metni = proje.get("kullanici_email", "")
+                                    hazirlayan_metni = proje.get("kullanici_email", "")
                                     p_email = proje.get("kullanici_email")
                                     if p_email in user_map:
                                         yetkili = user_map[p_email].get("yetkili_kisi", "").strip()
                                         firma = user_map[p_email].get("firma_adi", "").strip()
-                                        if yetkili and firma: musteri_metni = f"{yetkili} ({firma})"
-                                        elif yetkili: musteri_metni = yetkili
-                                        elif firma: musteri_metni = firma
+                                        if yetkili and firma: hazirlayan_metni = f"{firma} - {yetkili}"
+                                        elif yetkili: hazirlayan_metni = yetkili
+                                        elif firma: hazirlayan_metni = firma
                                         
                                     st.write("")
                                     c_btn_pdf, c_btn_del = st.columns([1, 1])
@@ -794,7 +811,7 @@ if db:
                                         try:
                                             st.download_button(
                                                 label="📄 PDF Olarak İndir", 
-                                                data=create_pdf(p_df, float(proje.get('toplam_tutar', 0)), musteri_metni), 
+                                                data=create_pdf(p_df, float(proje.get('toplam_tutar', 0)), hazirlayan_metni, proje_ismi), 
                                                 file_name=f"{proje_ismi.replace(' ', '_')}.pdf", 
                                                 mime="application/pdf", 
                                                 key=f"pdf_admin_{proje['id']}",
