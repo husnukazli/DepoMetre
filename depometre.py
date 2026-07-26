@@ -193,7 +193,6 @@ def create_pdf(sepet_verisi, toplam, musteri_bilgisi=None):
         pdf.add_font("ArialTR", "", "arial.ttf", uni=True)
         pdf.add_font("ArialTR_B", "B", "arial.ttf", uni=True)
     else:
-        # Font yoksa özel karakterleri İngilizce karakterlere çevir (Hata almamak için)
         if musteri_bilgisi:
             for tr, eng in zip("şŞıİçÇöÖğĞüÜ", "sSiIcCoOgGuU"):
                 musteri_bilgisi = musteri_bilgisi.replace(tr, eng)
@@ -209,7 +208,6 @@ def create_pdf(sepet_verisi, toplam, musteri_bilgisi=None):
     pdf.cell(0, 6, txt="Web: www.arcesmuhendislik.com", ln=True, align='C')
     pdf.ln(10)
     
-    # Müşteri Bilgisi Yazdırma
     if musteri_bilgisi:
         pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 12)
         pdf.cell(0, 8, txt=f"Sayin: {musteri_bilgisi}", ln=True, align='L')
@@ -222,7 +220,6 @@ def create_pdf(sepet_verisi, toplam, musteri_bilgisi=None):
     
     pdf.set_font("ArialTR" if has_font else "Arial", "", 12)
     for index, row in sepet_verisi.iterrows():
-        # Karakter düzeltmeleri (Eğer özel font yüklenemediyse)
         kat_text = str(row['Kategori'])[:15]
         marka_text = str(row['Marka/Model'])[:45]
         if not has_font:
@@ -609,7 +606,6 @@ if db:
                 
                 col_pdf, col_temizle = st.columns([1, 1])
                 with col_pdf:
-                    # PDF İçin Müşteri İsmi / Firma Adı Çekme
                     musteri_metni = ""
                     try:
                         mevcut_k = supabase.table("kullanicilar").select("firma_adi, yetkili_kisi").eq("id", st.session_state['kullanici_id']).execute().data[0]
@@ -679,6 +675,12 @@ if db:
                                 p_df = pd.DataFrame(proje['sepet_detayi'])
                                 display_df = p_df[['Kategori', 'Marka/Model', 'Fiyat']] if 'Kategori' in p_df.columns else p_df
                                 st.dataframe(display_df, use_container_width=True)
+                            
+                            # --- PROJE SİLME BUTONU (MÜŞTERİ TARAFI) ---
+                            st.write("")
+                            if st.button("🗑️ Bu Projeyi Sil", key=f"sil_kendi_proje_{proje['id']}"):
+                                supabase.table("teklifler").delete().eq("id", proje["id"]).execute()
+                                st.rerun()
                 else:
                     st.info("Henüz sisteme kaydettiğiniz bir projeniz bulunmuyor.")
             except:
@@ -705,7 +707,6 @@ if db:
                     for usr in tum_kullanicilar:
                         durum_ikonu = "✅" if usr.get("onayli_mi") else "⏳ (Bekliyor)"
                         
-                        # Başlıkta Yetkili Kişi ve Firma Adını Gösterelim
                         yetkili_goster = usr.get('yetkili_kisi', 'İsim Yok')
                         firma_goster = usr.get('firma_adi', 'Firma Girilmemiş')
                         
@@ -747,6 +748,12 @@ if db:
                                     p_df = pd.DataFrame(proje['sepet_detayi'])
                                     display_df = p_df[['Kategori', 'Marka/Model', 'Fiyat']] if 'Kategori' in p_df.columns else p_df
                                     st.dataframe(display_df, use_container_width=True)
+                                
+                                # --- PROJE SİLME BUTONU (ADMİN TARAFI) ---
+                                st.write("")
+                                if st.button("🗑️ Projeyi Sistemden Sil", key=f"sil_admin_proje_{proje['id']}"):
+                                    supabase.table("teklifler").delete().eq("id", proje["id"]).execute()
+                                    st.rerun()
                     else:
                         st.info("Henüz sisteme kaydedilmiş bir proje/teklif bulunmuyor.")
                 except Exception as e:
