@@ -5,6 +5,7 @@ import os
 import uuid
 import time
 import math
+import json
 from fpdf import FPDF
 import requests
 import xml.etree.ElementTree as ET
@@ -115,9 +116,11 @@ if 'kur_cekildi_mi' not in st.session_state:
 
 GUNCEL_KUR_EUR = st.session_state['guncel_kur']
 
+# -- OTURUM YÖNETİMİ --
 if 'sepet' not in st.session_state: st.session_state['sepet'] = []
 if 'kullanici_rol' not in st.session_state: st.session_state['kullanici_rol'] = 'ziyaretci' 
 if 'kullanici_email' not in st.session_state: st.session_state['kullanici_email'] = ''
+if 'kullanici_id' not in st.session_state: st.session_state['kullanici_id'] = ''
 if 'oneri_sepete_eklendi' not in st.session_state: st.session_state['oneri_sepete_eklendi'] = False
 if 'hesaplama_yapildi' not in st.session_state: st.session_state['hesaplama_yapildi'] = False
 
@@ -277,6 +280,7 @@ with col_auth:
                     if user_req.data and user_req.data[0].get('onayli_mi', False):
                         st.session_state['kullanici_rol'] = user_req.data[0].get('rol', 'bayi')
                         st.session_state['kullanici_email'] = user_req.data[0]['email']
+                        st.session_state['kullanici_id'] = user_req.data[0]['id']
                         st.rerun()
                     else: st.error("Hatalı giriş veya onay bekleyen hesap.")
                 except: st.error("Bağlantı hatası.")
@@ -296,6 +300,7 @@ with col_auth:
         if st.button("🚪 Çıkış Yap", type="secondary"):
             st.session_state['kullanici_rol'] = 'ziyaretci'
             st.session_state['kullanici_email'] = ''
+            st.session_state['kullanici_id'] = ''
             st.session_state['sepet'] = []
             st.session_state['hesaplama_yapildi'] = False
             st.rerun()
@@ -326,6 +331,7 @@ db = veritabani_cek()
 # ==========================================
 if db:
     ana_sekmeler = ["İleri Düzey Konfigüratör"]
+    if is_logged_in: ana_sekmeler.append("👤 Profilim ve Projelerim")
     if is_admin: ana_sekmeler.append("⚙️ Admin Paneli")
     secilen_ana_sekme = st.tabs(ana_sekmeler)
 
@@ -337,7 +343,6 @@ if db:
         
         c_sol, c_sag = st.columns(2)
         with c_sol:
-            # -- 81 İLİN TAMAMI --
             il_sicakliklari = {
                 "Adana": 38.0, "Adıyaman": 39.0, "Afyonkarahisar": 34.0, "Ağrı": 31.0, "Aksaray": 35.0, 
                 "Amasya": 36.0, "Ankara": 34.0, "Antalya": 38.0, "Ardahan": 28.0, "Artvin": 32.0, 
@@ -494,7 +499,7 @@ if db:
 
         st.divider()
         
-        # --- MANUEL PARÇA SEÇİMİ (SIRALANMIŞ VE TÜRKÇE) ---
+        # --- MANUEL PARÇA SEÇİMİ ---
         st.markdown("<div class='info-kutu'><h3 style='text-align: center;'>2. Adım: Manuel Katalog</h3></div>", unsafe_allow_html=True)
         
         db_tipler = list(set([str(p.get("tip", "diger")).lower() for p in db["parcalar_db"] if p.get("tip")]))
@@ -539,19 +544,11 @@ if db:
 
         st.divider()
 
-        # --- SEPET ÖZETİ (OTOMATİK MÜHENDİSLİK SIRALAMASI EKLENDİ) ---
+        # --- SEPET ÖZETİ VE PROJE KAYDETME EKRANI ---
         st.header("🛒 3. Adım: Proje Sepeti")
         if st.session_state['sepet']:
             
-            # Kullanıcı hangi sırayla eklerse eklesin, sepeti her zaman hiyerarşik sıraya diziyoruz
-            sira_sozluk = {
-                "Kompresör": 1,
-                "Evaporatör": 2,
-                "Elektrik Panosu": 3,
-                "İzolasyon Paneli": 4,
-                "Kapı": 5
-            }
-            # Listeyi "sira_sozluk" değerlerine göre (1'den 5'e) sırala, listede olmayan varsa en alta (99) at
+            sira_sozluk = { "Kompresör": 1, "Evaporatör": 2, "Elektrik Panosu": 3, "İzolasyon Paneli": 4, "Kapı": 5 }
             st.session_state['sepet'] = sorted(st.session_state['sepet'], key=lambda k: sira_sozluk.get(k.get('Kategori', ''), 99))
             
             for item in st.session_state['sepet']:
@@ -568,9 +565,31 @@ if db:
             
             if is_logged_in:
                 st.success(f"### 💰 Toplam Maliyet: {toplam_tutar:,.2f} TL")
+                
+                # --- PROJE KAYDETME BÖLÜMÜ ---
+                st.markdown("<div class='info-kutu'>", unsafe_allow_html=True)
+                st.write("#### 💾 Bu Sepeti Proje Olarak Kaydet")
+                c_proje1, c_proje2 = st.columns([3, 1])
+                proje_adi = c_proje1.text_input("Müşteri / Proje Adı", placeholder="Örn: Ahmet Bey Et Deposu")
+                if c_proje2.button("Sisteme Kaydet (CRM)", use_container_width=True):
+                    if proje_adi.strip() == "":
+                        st.error("Lütfen kaydetmeden önce projeye bir isim verin.")
+                    else:
+                        try:
+                            supabase.table("teklifler").insert({
+                                "kullanici_email": st.session_state['kullanici_email'],
+                                "proje_adi": proje_adi,
+                                "toplam_tutar": float(toplam_tutar),
+                                "sepet_detayi": st.session_state['sepet']
+                            }).execute()
+                            st.success(f"✅ '{proje_adi}' projesi başarıyla profilinize kaydedildi!")
+                        except Exception as e:
+                            st.error("Veritabanına kaydedilirken hata oluştu. Supabase'deki 'teklifler' tablosunu kontrol edin.")
+                st.markdown("</div>", unsafe_allow_html=True)
+                
                 col_pdf, col_temizle = st.columns([1, 1])
                 with col_pdf:
-                    try: st.download_button("📄 PDF İndir", create_pdf(df_sepet, toplam_tutar), "Teklif.pdf", "application/pdf", use_container_width=True)
+                    try: st.download_button("📄 PDF Teklif İndir", create_pdf(df_sepet, toplam_tutar), "Teklif.pdf", "application/pdf", use_container_width=True)
                     except: pass
                 with col_temizle:
                     if st.button("Tüm Sepeti Temizle", use_container_width=True): 
@@ -578,7 +597,7 @@ if db:
                         st.session_state['oneri_sepete_eklendi'] = False
                         st.rerun()
             else:
-                st.error("🔒 Sistemin toplam maliyetini görmek ve resmi PDF teklifini almak için lütfen yukarıdan kayıt olun veya giriş yapın.")
+                st.error("🔒 Sistemin toplam maliyetini görmek, PDF teklif almak ve projeyi kaydetmek için lütfen giriş yapın.")
                 if st.button("Sepeti Temizle"): 
                     st.session_state['sepet'] = []
                     st.session_state['oneri_sepete_eklendi'] = False
@@ -586,30 +605,84 @@ if db:
         else:
             st.info("Sepetinizde parça yok.")
 
+    # ----------------- PROFİLİM VE PROJELERİM (YENİ SEKME) -----------------
+    if is_logged_in and len(secilen_ana_sekme) >= 2:
+        profil_sekme_index = 1
+        with secilen_ana_sekme[profil_sekme_index]:
+            st.header("👤 Profil ve Ticari Bilgilerim")
+            
+            try:
+                # Kullanıcı bilgilerini çek
+                mevcut_kullanici = supabase.table("kullanicilar").select("*").eq("email", st.session_state['kullanici_email']).execute().data[0]
+                
+                with st.form("profil_guncelle_form"):
+                    st.subheader("Firma Bilgileri")
+                    f_ad = st.text_input("Firma Adı / Unvanı", value=mevcut_kullanici.get("firma_adi", ""))
+                    f_tel = st.text_input("Telefon Numarası", value=mevcut_kullanici.get("telefon", ""))
+                    f_adres = st.text_area("Adres", value=mevcut_kullanici.get("adres", ""))
+                    f_vergi = st.text_input("Vergi Dairesi ve No", value=mevcut_kullanici.get("vergi_bilgisi", ""), placeholder="Örn: Bornova VD. / 1234567890")
+                    
+                    if st.form_submit_button("💾 Bilgilerimi Güncelle"):
+                        supabase.table("kullanicilar").update({
+                            "firma_adi": f_ad,
+                            "telefon": f_tel,
+                            "adres": f_adres,
+                            "vergi_bilgisi": f_vergi
+                        }).eq("id", st.session_state['kullanici_id']).execute()
+                        st.success("✅ Bilgileriniz başarıyla güncellendi!")
+                        
+            except Exception as e:
+                st.error("Kullanıcı bilgileri çekilemedi. Veritabanı tablolarınız güncel olmayabilir.")
+                
+            st.divider()
+            
+            st.header("🗂️ Kayıtlı Projelerim (Geçmiş Teklifler)")
+            try:
+                kendi_projeleri = supabase.table("teklifler").select("*").eq("kullanici_email", st.session_state['kullanici_email']).order('tarih', desc=True).execute().data
+                if kendi_projeleri:
+                    for proje in kendi_projeleri:
+                        with st.expander(f"📁 {proje.get('proje_adi', 'İsimsiz Proje')} - {proje.get('tarih', '')[:10]} - {float(proje.get('toplam_tutar', 0)):,.2f} TL"):
+                            if proje.get('sepet_detayi'):
+                                p_df = pd.DataFrame(proje['sepet_detayi'])
+                                # Ekranda gösterirken gereksiz ID sütununu gizle
+                                display_df = p_df[['Kategori', 'Marka/Model', 'Fiyat']] if 'Kategori' in p_df.columns else p_df
+                                st.dataframe(display_df, use_container_width=True)
+                else:
+                    st.info("Henüz sisteme kaydettiğiniz bir projeniz bulunmuyor.")
+            except:
+                st.warning("Geçmiş projeler şu an listelenemiyor.")
+
     # ----------------- ADMİN PANELİ -----------------
     if is_admin:
-        with secilen_ana_sekme[1]:
+        admin_sekme_index = 2 if is_logged_in else 1
+        with secilen_ana_sekme[admin_sekme_index]:
             st.header("⚙️ Yönetici (Admin) Paneli")
             
             admin_tab1, admin_tab2, admin_tab3, admin_tab4, admin_tab5 = st.tabs([
-                "👥 Kullanıcı Onayları", 
+                "👥 Bayi/Müşteri Yönetimi", 
                 "🔑 Şifre Talepleri",
-                "🗂️ Müşteri Teklif Arşivi", 
+                "🗂️ Tüm Müşteri Projeleri", 
                 "➕ Yeni Ürün Ekle", 
                 "✏️ Katalog Yönetimi"
             ])
             
             with admin_tab1:
-                bekleyenler = supabase.table("kullanicilar").select("*").eq("onayli_mi", False).execute().data
-                if bekleyenler:
-                    for usr in bekleyenler:
-                        u_col1, u_col2 = st.columns([3,1])
-                        u_col1.write(f"📧 **{usr['email']}**")
-                        if u_col2.button("✅ Onayla", key=f"onay_{usr['id']}"):
-                            supabase.table("kullanicilar").update({"onayli_mi": True}).eq("id", usr['id']).execute()
-                            st.rerun()
+                st.subheader("Mevcut Kullanıcılar ve Onay Bekleyenler")
+                tum_kullanicilar = supabase.table("kullanicilar").select("*").execute().data
+                if tum_kullanicilar:
+                    for usr in tum_kullanicilar:
+                        durum_ikonu = "✅" if usr.get("onayli_mi") else "⏳ (Bekliyor)"
+                        with st.expander(f"{durum_ikonu} {usr['email']} - {usr.get('firma_adi', 'Firma Girilmemiş')}"):
+                            st.write(f"**Telefon:** {usr.get('telefon', '-')}")
+                            st.write(f"**Adres:** {usr.get('adres', '-')}")
+                            st.write(f"**Vergi Bilgisi:** {usr.get('vergi_bilgisi', '-')}")
+                            
+                            if not usr.get("onayli_mi"):
+                                if st.button("Kullanıcıyı Onayla", key=f"onay_{usr['id']}"):
+                                    supabase.table("kullanicilar").update({"onayli_mi": True}).eq("id", usr['id']).execute()
+                                    st.rerun()
                 else:
-                    st.info("Onay bekleyen yeni kayıt yok.")
+                    st.info("Sistemde hiç kullanıcı yok.")
                     
             with admin_tab2:
                 sifre_isteyenler = supabase.table("kullanicilar").select("*").eq("sifre_sifirlama_istendi", True).execute().data
@@ -624,16 +697,21 @@ if db:
                     st.info("Şifre sıfırlama talebi bulunmuyor.")
                     
             with admin_tab3:
-                st.subheader("🗂️ Geçmiş Müşteri Teklifleri Arşivi")
+                st.subheader("🗂️ Sistemdeki Tüm Müşteri Projeleri (CRM)")
                 try:
-                    teklifler_data = supabase.table("teklifler").select("*").execute().data
+                    teklifler_data = supabase.table("teklifler").select("*").order('tarih', desc=True).execute().data
                     if teklifler_data:
-                        df_teklif = pd.DataFrame(teklifler_data)
-                        st.dataframe(df_teklif, use_container_width=True)
+                        for proje in teklifler_data:
+                            with st.expander(f"👤 {proje.get('kullanici_email')} | 📁 {proje.get('proje_adi', 'İsimsiz')} | 💰 {float(proje.get('toplam_tutar', 0)):,.2f} TL"):
+                                st.write(f"**Tarih:** {proje.get('tarih', '')[:10]}")
+                                if proje.get('sepet_detayi'):
+                                    p_df = pd.DataFrame(proje['sepet_detayi'])
+                                    display_df = p_df[['Kategori', 'Marka/Model', 'Fiyat']] if 'Kategori' in p_df.columns else p_df
+                                    st.dataframe(display_df, use_container_width=True)
                     else:
-                        st.info("Henüz veritabanına kaydedilmiş bir teklif bulunmuyor.")
+                        st.info("Henüz sisteme kaydedilmiş bir proje/teklif bulunmuyor.")
                 except Exception as e:
-                    st.error("Veritabanına bağlanırken bir hata oluştu veya 'teklifler' tablosu eksik.")
+                    st.error("Veritabanına bağlanırken bir hata oluştu veya 'teklifler' tablosu eksik/yapısı hatalı.")
 
             with admin_tab4:
                 st.subheader("Kataloğa Yeni Cihaz Ekle")
