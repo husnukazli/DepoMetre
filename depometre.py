@@ -93,7 +93,7 @@ def init_supabase():
 
 supabase = init_supabase()
 
-# -- AKILLİ KUR YÖNETİMİ --
+# -- AKILLI KUR YÖNETİMİ --
 if 'guncel_kur' not in st.session_state:
     st.session_state['guncel_kur'] = 38.50  
 
@@ -123,6 +123,15 @@ if 'hesaplama_yapildi' not in st.session_state: st.session_state['hesaplama_yapi
 
 is_logged_in = st.session_state['kullanici_rol'] in ['bayi', 'admin']
 is_admin = st.session_state['kullanici_rol'] == 'admin'
+
+# --- KATEGORİ HARİTALANDIRMA VE SIRALAMA ---
+KATEGORI_MAP = {
+    "kompresor": {"isim": "Kompresör", "sira": 1},
+    "evaporator": {"isim": "Evaporatör", "sira": 2},
+    "pano": {"isim": "Elektrik Panosu", "sira": 3},
+    "panel": {"isim": "İzolasyon Paneli", "sira": 4},
+    "kapi": {"isim": "Kapı", "sira": 5},
+}
 
 # --- YARDIMCI FİYAT HESAPLAMA ---
 def get_gercek_fiyat_tl(urun):
@@ -295,7 +304,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 st.info(f"💶 **Güncel Euro Kuru:** 1 EUR = {GUNCEL_KUR_EUR:.4f} TL")
 
 # ==========================================
-# 5. VERİTABANI ÖN YÜKLEME (Esnek Pano Eşleme ve TTL Düşürüldü)
+# 5. VERİTABANI ÖN YÜKLEME 
 # ==========================================
 @st.cache_data(ttl=60)
 def veritabani_cek():
@@ -328,7 +337,26 @@ if db:
         
         c_sol, c_sag = st.columns(2)
         with c_sol:
-            il_sicakliklari = {"İzmir": 35.0, "Antalya": 38.0, "Adana": 37.0, "İstanbul": 33.0, "Ankara": 32.0, "Zonguldak": 31.0, "Diğer": 35.0}
+            # -- 81 İLİN TAMAMI --
+            il_sicakliklari = {
+                "Adana": 38.0, "Adıyaman": 39.0, "Afyonkarahisar": 34.0, "Ağrı": 31.0, "Aksaray": 35.0, 
+                "Amasya": 36.0, "Ankara": 34.0, "Antalya": 38.0, "Ardahan": 28.0, "Artvin": 32.0, 
+                "Aydın": 38.0, "Balıkesir": 36.0, "Bartın": 32.0, "Batman": 41.0, "Bayburt": 31.0, 
+                "Bilecik": 35.0, "Bingöl": 37.0, "Bitlis": 33.0, "Bolu": 32.0, "Burdur": 35.0, 
+                "Bursa": 35.0, "Çanakkale": 35.0, "Çankırı": 36.0, "Çorum": 35.0, "Denizli": 37.0, 
+                "Diyarbakır": 41.0, "Düzce": 33.0, "Edirne": 36.0, "Elazığ": 39.0, "Erzincan": 36.0, 
+                "Erzurum": 31.0, "Eskişehir": 34.0, "Gaziantep": 39.0, "Giresun": 31.0, "Gümüşhane": 32.0, 
+                "Hakkari": 34.0, "Hatay": 38.0, "Iğdır": 37.0, "Isparta": 34.0, "İstanbul": 34.0, 
+                "İzmir": 36.0, "Kahramanmaraş": 39.0, "Karabük": 34.0, "Karaman": 35.0, "Kars": 29.0, 
+                "Kastamonu": 33.0, "Kayseri": 35.0, "Kırıkkale": 36.0, "Kırklareli": 36.0, "Kırşehir": 35.0, 
+                "Kilis": 40.0, "Kocaeli": 34.0, "Konya": 35.0, "Kütahya": 33.0, "Malatya": 38.0, 
+                "Manisa": 38.0, "Mardin": 40.0, "Mersin": 36.0, "Muğla": 38.0, "Muş": 35.0, 
+                "Nevşehir": 34.0, "Niğde": 34.0, "Ordu": 31.0, "Osmaniye": 38.0, "Rize": 30.0, 
+                "Sakarya": 34.0, "Samsun": 32.0, "Siirt": 40.0, "Sinop": 31.0, "Sivas": 34.0, 
+                "Şanlıurfa": 42.0, "Şırnak": 39.0, "Tekirdağ": 34.0, "Tokat": 36.0, "Trabzon": 30.0, 
+                "Tunceli": 38.0, "Uşak": 35.0, "Van": 31.0, "Yalova": 33.0, "Yozgat": 33.0, 
+                "Zonguldak": 31.0, "Diğer": 35.0
+            }
             secilen_il = st.selectbox("Projenin Uygulanacağı İl", list(il_sicakliklari.keys()))
             t_dis = st.number_input("Dış Ortam Sıcaklığı (°C)", value=il_sicakliklari[secilen_il], step=1.0)
             
@@ -420,7 +448,7 @@ if db:
                     komp_baslik = f"{m} - {md}" if komp_carpani == 1 else f"{m} - {md} ({komp_carpani} Adet)"
                     toplam_komp_fiyat = get_gercek_fiyat_tl(komp) * komp_carpani
                     
-                    render_tooltip_box("Kompresör Grubu", m, komp_baslik, get_teknik_detay(m, komp_tek_kw), f" | Toplam Kapasite: {toplam_komp_kw:.1f} kW ({toplam_komp_hp:.1f} HP) - {komp_carpani} Adet")
+                    render_tooltip_box("Kompresör", m, komp_baslik, get_teknik_detay(m, komp_tek_kw), f" | Toplam Kapasite: {toplam_komp_kw:.1f} kW ({toplam_komp_hp:.1f} HP) - {komp_carpani} Adet")
                     onerilen_sepet_listesi.append({"Kategori": "Kompresör", "Marka/Model": komp_baslik, "Fiyat": toplam_komp_fiyat})
                 
                 if evap:
@@ -439,7 +467,7 @@ if db:
                 if panel_veri:
                     panel_ad = f"{secilen_panel_kalinlik} mm PUR/PIR"
                     duvar_metni = "(Fire ve Ara Duvar Dahil)" if bolme_istiyor_mu else "(Fire Dahil)"
-                    render_tooltip_box("Panel", "Arces PUR", panel_ad, get_teknik_detay("Arces PUR"), f" | Miktar: {brut_panel_m2:.1f} m² {duvar_metni}")
+                    render_tooltip_box("İzolasyon Paneli", "Arces PUR", panel_ad, get_teknik_detay("Arces PUR"), f" | Miktar: {brut_panel_m2:.1f} m² {duvar_metni}")
                     onerilen_sepet_listesi.append({"Kategori": "İzolasyon Paneli", "Marka/Model": f"{secilen_panel_kalinlik} mm Panel ({brut_panel_m2:.1f} m²)", "Fiyat": float(panel_veri["fiyat_eur_m2"]) * brut_panel_m2 * GUNCEL_KUR_EUR})
                 
                 kapi_fiyat_tl = ((450 if "Sürgülü" in kapi_tipi else 325) + (50 if t_ic < 0 else 0)) * GUNCEL_KUR_EUR * kapi_sayisi
@@ -466,15 +494,18 @@ if db:
 
         st.divider()
         
-        # --- MANUEL PARÇA SEÇİMİ ---
+        # --- MANUEL PARÇA SEÇİMİ (SIRALANMIŞ VE TÜRKÇE) ---
         st.markdown("<div class='info-kutu'><h3 style='text-align: center;'>2. Adım: Manuel Katalog</h3></div>", unsafe_allow_html=True)
         
-        kategori_isimleri = list(set([str(p.get("tip", "Diger")).capitalize() for p in db["parcalar_db"] if p.get("tip")]))
+        db_tipler = list(set([str(p.get("tip", "diger")).lower() for p in db["parcalar_db"] if p.get("tip")]))
+        sirali_tipler = sorted(db_tipler, key=lambda x: KATEGORI_MAP.get(x, {"sira": 99})["sira"])
+        kategori_isimleri = [KATEGORI_MAP.get(x, {"isim": x.capitalize()})["isim"] for x in sirali_tipler]
+
         if kategori_isimleri:
             sekmeler_kat = st.tabs(kategori_isimleri)
             for index, sekme in enumerate(sekmeler_kat):
                 with sekme:
-                    uygun_parcalar = [p for p in db["parcalar_db"] if str(p.get("tip", "")).lower() == kategori_isimleri[index].lower()]
+                    uygun_parcalar = [p for p in db["parcalar_db"] if str(p.get("tip", "")).lower() == sirali_tipler[index]]
                     for parca in uygun_parcalar:
                         p_birim = parca.get("para_birimi")
                         if not p_birim:
@@ -508,9 +539,21 @@ if db:
 
         st.divider()
 
-        # --- SEPET ÖZETİ ---
+        # --- SEPET ÖZETİ (OTOMATİK MÜHENDİSLİK SIRALAMASI EKLENDİ) ---
         st.header("🛒 3. Adım: Proje Sepeti")
         if st.session_state['sepet']:
+            
+            # Kullanıcı hangi sırayla eklerse eklesin, sepeti her zaman hiyerarşik sıraya diziyoruz
+            sira_sozluk = {
+                "Kompresör": 1,
+                "Evaporatör": 2,
+                "Elektrik Panosu": 3,
+                "İzolasyon Paneli": 4,
+                "Kapı": 5
+            }
+            # Listeyi "sira_sozluk" değerlerine göre (1'den 5'e) sırala, listede olmayan varsa en alta (99) at
+            st.session_state['sepet'] = sorted(st.session_state['sepet'], key=lambda k: sira_sozluk.get(k.get('Kategori', ''), 99))
+            
             for item in st.session_state['sepet']:
                 s_col1, s_col2, s_col3, s_col4 = st.columns([2, 5, 3, 2])
                 s_col1.write(item['Kategori'])
@@ -594,14 +637,15 @@ if db:
 
             with admin_tab4:
                 st.subheader("Kataloğa Yeni Cihaz Ekle")
-                mevcut_tipler = list(set([str(p.get("tip", "diger")).capitalize() for p in db["parcalar_db"] if p.get("tip")]))
-                mevcut_markalar = list(set([str(p.get("marka", "Markasız")).capitalize() for p in db["parcalar_db"] if p.get("marka")]))
+                admin_tipler = sorted(list(set([str(p.get("tip", "diger")).lower() for p in db["parcalar_db"] if p.get("tip")])), key=lambda x: KATEGORI_MAP.get(x, {"sira": 99})["sira"])
+                mevcut_tipler_isim = [KATEGORI_MAP.get(x, {"isim": x.capitalize()})["isim"] for x in admin_tipler]
                 
                 with st.form("yeni_urun_formu"):
                     col_t1, col_t2 = st.columns(2)
-                    secilen_tip = col_t1.selectbox("Kategori Seçimi", ["Listeden Seç..."] + mevcut_tipler)
-                    yeni_tip = col_t2.text_input("Veya Yeni Kategori Yaz", placeholder="Örn: Fan, Pano vb.")
+                    secilen_tip_isim = col_t1.selectbox("Kategori Seçimi", ["Listeden Seç..."] + mevcut_tipler_isim)
+                    yeni_tip = col_t2.text_input("Veya Yeni Kategori Yaz", placeholder="Örn: Fan, Valf vb.")
                     
+                    mevcut_markalar = list(set([str(p.get("marka", "Markasız")).capitalize() for p in db["parcalar_db"] if p.get("marka")]))
                     col_m1, col_m2 = st.columns(2)
                     secilen_marka = col_m1.selectbox("Marka Seçimi", ["Listeden Seç..."] + mevcut_markalar)
                     yeni_marka = col_m2.text_input("Veya Yeni Marka Yaz", placeholder="Örn: X-Cooling")
@@ -612,7 +656,8 @@ if db:
                     y_para_birimi = st.selectbox("Para Birimi", ["EUR", "TL"])
                     
                     if st.form_submit_button("Ürünü Kaydet"):
-                        final_tip = yeni_tip.strip() if yeni_tip.strip() else (secilen_tip if secilen_tip != "Listeden Seç..." else "")
+                        secilen_tip_raw = admin_tipler[mevcut_tipler_isim.index(secilen_tip_isim)] if secilen_tip_isim != "Listeden Seç..." else ""
+                        final_tip = yeni_tip.strip() if yeni_tip.strip() else secilen_tip_raw
                         final_marka = yeni_marka.strip() if yeni_marka.strip() else (secilen_marka if secilen_marka != "Listeden Seç..." else "")
                         
                         if not final_tip or not final_marka or not y_model:
