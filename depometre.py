@@ -183,7 +183,7 @@ def render_tooltip_box(kategori, marka, model, detay_html, extra_text=""):
 
 
 # ==========================================
-# 2. PDF VE SEPET FONKSİYONLARI (MÜŞTERİ İSMİ DESTEKLİ)
+# 2. PDF VE SEPET FONKSİYONLARI 
 # ==========================================
 def create_pdf(sepet_verisi, toplam, musteri_bilgisi=None):
     pdf = FPDF()
@@ -425,7 +425,6 @@ if db:
                 if bolme_istiyor_mu:
                     ekstra_duvar_alani = (en * yukseklik) if "Enine" in bolme_yonu else (boy * yukseklik)
 
-                # --- KOMPRESÖR SEÇİMİ VE ÇOKLU SİSTEM MANTIĞI ---
                 komp = None
                 komp_carpani = 1
                 
@@ -443,14 +442,12 @@ if db:
                         komp = max(db["kompresorler"], key=lambda x: float(x["kapasite_kw"]))
                         komp_carpani = math.ceil(gerekli_kw / float(komp.get("kapasite_kw", 1)))
 
-                # --- EVAPORATÖR SEÇİMİ ---
                 temel_evap_carpani = 2 if bolme_istiyor_mu else 1
                 evap_carpani = max(temel_evap_carpani, komp_carpani)
 
                 uygun_evap = [e for e in db["evaporatorler"] if float(e.get("min_kw", 0)) <= gerekli_kw <= float(e.get("max_kw", 999))]
                 evap = uygun_evap[0] if uygun_evap else (db["evaporatorler"][0] if db["evaporatorler"] else None)
                 
-                # --- ELEKTRİK PANOSU SEÇİMİ ---
                 pano = db["panolar"][0] if db["panolar"] else None
 
                 panel_veri = next((p for p in db["paneller"] if str(p["kalinlik_mm"]) == str(secilen_panel_kalinlik)), None)
@@ -670,17 +667,40 @@ if db:
                 kendi_projeleri = supabase.table("teklifler").select("*").eq("kullanici_email", st.session_state['kullanici_email']).order('tarih', desc=True).execute().data
                 if kendi_projeleri:
                     for proje in kendi_projeleri:
-                        with st.expander(f"📁 {proje.get('proje_adi', 'İsimsiz Proje')} - {proje.get('tarih', '')[:10]} - {float(proje.get('toplam_tutar', 0)):,.2f} TL"):
+                        proje_ismi = proje.get('proje_adi', 'İsimsiz_Proje')
+                        with st.expander(f"📁 {proje_ismi} - {proje.get('tarih', '')[:10]} - {float(proje.get('toplam_tutar', 0)):,.2f} TL"):
                             if proje.get('sepet_detayi'):
                                 p_df = pd.DataFrame(proje['sepet_detayi'])
                                 display_df = p_df[['Kategori', 'Marka/Model', 'Fiyat']] if 'Kategori' in p_df.columns else p_df
                                 st.dataframe(display_df, use_container_width=True)
                             
-                            # --- PROJE SİLME BUTONU (MÜŞTERİ TARAFI) ---
-                            st.write("")
-                            if st.button("🗑️ Bu Projeyi Sil", key=f"sil_kendi_proje_{proje['id']}"):
-                                supabase.table("teklifler").delete().eq("id", proje["id"]).execute()
-                                st.rerun()
+                                # --- PDF Dışa Aktarma İçin Müşteri İsim Metni Hazırlama ---
+                                musteri_metni = ""
+                                yetkili = mevcut_kullanici.get("yetkili_kisi", "").strip()
+                                firma = mevcut_kullanici.get("firma_adi", "").strip()
+                                if yetkili and firma: musteri_metni = f"{yetkili} ({firma})"
+                                elif yetkili: musteri_metni = yetkili
+                                elif firma: musteri_metni = firma
+                            
+                                st.write("")
+                                c_btn_pdf, c_btn_del = st.columns([1, 1])
+                                
+                                with c_btn_pdf:
+                                    try:
+                                        st.download_button(
+                                            label="📄 PDF Olarak İndir", 
+                                            data=create_pdf(p_df, float(proje.get('toplam_tutar', 0)), musteri_metni), 
+                                            file_name=f"{proje_ismi.replace(' ', '_')}.pdf", 
+                                            mime="application/pdf", 
+                                            key=f"pdf_kendi_{proje['id']}",
+                                            use_container_width=True
+                                        )
+                                    except: pass
+                                
+                                with c_btn_del:
+                                    if st.button("🗑️ Bu Projeyi Sil", key=f"sil_kendi_proje_{proje['id']}", use_container_width=True):
+                                        supabase.table("teklifler").delete().eq("id", proje["id"]).execute()
+                                        st.rerun()
                 else:
                     st.info("Henüz sisteme kaydettiğiniz bir projeniz bulunmuyor.")
             except:
@@ -692,6 +712,14 @@ if db:
         with secilen_ana_sekme[admin_sekme_index]:
             st.header("⚙️ Yönetici (Admin) Paneli")
             
+            # --- Kullanıcıları Baştan Çekiyoruz Ki Tüm Sekmelerde Kullanalım ---
+            try:
+                tum_kullanicilar = supabase.table("kullanicilar").select("*").execute().data
+                user_map = {u['email']: u for u in tum_kullanicilar} if tum_kullanicilar else {}
+            except:
+                tum_kullanicilar = []
+                user_map = {}
+            
             admin_tab1, admin_tab2, admin_tab3, admin_tab4, admin_tab5 = st.tabs([
                 "👥 Bayi/Müşteri Yönetimi", 
                 "🔑 Şifre Talepleri",
@@ -702,7 +730,6 @@ if db:
             
             with admin_tab1:
                 st.subheader("Mevcut Kullanıcılar ve Onay Bekleyenler")
-                tum_kullanicilar = supabase.table("kullanicilar").select("*").execute().data
                 if tum_kullanicilar:
                     for usr in tum_kullanicilar:
                         durum_ikonu = "✅" if usr.get("onayli_mi") else "⏳ (Bekliyor)"
@@ -742,18 +769,43 @@ if db:
                     teklifler_data = supabase.table("teklifler").select("*").order('tarih', desc=True).execute().data
                     if teklifler_data:
                         for proje in teklifler_data:
-                            with st.expander(f"👤 {proje.get('kullanici_email')} | 📁 {proje.get('proje_adi', 'İsimsiz')} | 💰 {float(proje.get('toplam_tutar', 0)):,.2f} TL"):
+                            proje_ismi = proje.get('proje_adi', 'İsimsiz_Proje')
+                            with st.expander(f"👤 {proje.get('kullanici_email')} | 📁 {proje_ismi} | 💰 {float(proje.get('toplam_tutar', 0)):,.2f} TL"):
                                 st.write(f"**Tarih:** {proje.get('tarih', '')[:10]}")
                                 if proje.get('sepet_detayi'):
                                     p_df = pd.DataFrame(proje['sepet_detayi'])
                                     display_df = p_df[['Kategori', 'Marka/Model', 'Fiyat']] if 'Kategori' in p_df.columns else p_df
                                     st.dataframe(display_df, use_container_width=True)
                                 
-                                # --- PROJE SİLME BUTONU (ADMİN TARAFI) ---
-                                st.write("")
-                                if st.button("🗑️ Projeyi Sistemden Sil", key=f"sil_admin_proje_{proje['id']}"):
-                                    supabase.table("teklifler").delete().eq("id", proje["id"]).execute()
-                                    st.rerun()
+                                    # --- PDF Dışa Aktarma İçin Bayi/Müşteri Kimliğini Eşleme ---
+                                    musteri_metni = proje.get("kullanici_email", "")
+                                    p_email = proje.get("kullanici_email")
+                                    if p_email in user_map:
+                                        yetkili = user_map[p_email].get("yetkili_kisi", "").strip()
+                                        firma = user_map[p_email].get("firma_adi", "").strip()
+                                        if yetkili and firma: musteri_metni = f"{yetkili} ({firma})"
+                                        elif yetkili: musteri_metni = yetkili
+                                        elif firma: musteri_metni = firma
+                                        
+                                    st.write("")
+                                    c_btn_pdf, c_btn_del = st.columns([1, 1])
+                                    
+                                    with c_btn_pdf:
+                                        try:
+                                            st.download_button(
+                                                label="📄 PDF Olarak İndir", 
+                                                data=create_pdf(p_df, float(proje.get('toplam_tutar', 0)), musteri_metni), 
+                                                file_name=f"{proje_ismi.replace(' ', '_')}.pdf", 
+                                                mime="application/pdf", 
+                                                key=f"pdf_admin_{proje['id']}",
+                                                use_container_width=True
+                                            )
+                                        except: pass
+                                        
+                                    with c_btn_del:
+                                        if st.button("🗑️ Projeyi Sistemden Sil", key=f"sil_admin_proje_{proje['id']}", use_container_width=True):
+                                            supabase.table("teklifler").delete().eq("id", proje["id"]).execute()
+                                            st.rerun()
                     else:
                         st.info("Henüz sisteme kaydedilmiş bir proje/teklif bulunmuyor.")
                 except Exception as e:
