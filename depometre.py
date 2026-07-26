@@ -183,15 +183,21 @@ def render_tooltip_box(kategori, marka, model, detay_html, extra_text=""):
 
 
 # ==========================================
-# 2. PDF VE SEPET FONKSİYONLARI
+# 2. PDF VE SEPET FONKSİYONLARI (MÜŞTERİ İSMİ DESTEKLİ)
 # ==========================================
-def create_pdf(sepet_verisi, toplam):
+def create_pdf(sepet_verisi, toplam, musteri_bilgisi=None):
     pdf = FPDF()
     pdf.add_page()
     has_font = os.path.exists("arial.ttf")
     if has_font:
         pdf.add_font("ArialTR", "", "arial.ttf", uni=True)
         pdf.add_font("ArialTR_B", "B", "arial.ttf", uni=True)
+    else:
+        # Font yoksa özel karakterleri İngilizce karakterlere çevir (Hata almamak için)
+        if musteri_bilgisi:
+            for tr, eng in zip("şŞıİçÇöÖğĞüÜ", "sSiIcCoOgGuU"):
+                musteri_bilgisi = musteri_bilgisi.replace(tr, eng)
+
     try:
         if os.path.exists("logo.png"): pdf.image("logo.png", x=10, y=8, w=40)
     except: pass 
@@ -201,7 +207,13 @@ def create_pdf(sepet_verisi, toplam):
     pdf.set_font("ArialTR" if has_font else "Arial", "", 12)
     pdf.cell(0, 6, txt="Soguk Hava Deposu Konfigurasyon Teklifi", ln=True, align='C')
     pdf.cell(0, 6, txt="Web: www.arcesmuhendislik.com", ln=True, align='C')
-    pdf.ln(15)
+    pdf.ln(10)
+    
+    # Müşteri Bilgisi Yazdırma
+    if musteri_bilgisi:
+        pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 12)
+        pdf.cell(0, 8, txt=f"Sayin: {musteri_bilgisi}", ln=True, align='L')
+        pdf.ln(5)
         
     pdf.set_font("ArialTR_B" if has_font else "Arial", "B", 12)
     pdf.cell(40, 10, txt="Kategori", border=1)
@@ -210,8 +222,16 @@ def create_pdf(sepet_verisi, toplam):
     
     pdf.set_font("ArialTR" if has_font else "Arial", "", 12)
     for index, row in sepet_verisi.iterrows():
-        pdf.cell(40, 10, txt=str(row['Kategori'])[:15], border=1)
-        pdf.cell(110, 10, txt=str(row['Marka/Model'])[:45], border=1)
+        # Karakter düzeltmeleri (Eğer özel font yüklenemediyse)
+        kat_text = str(row['Kategori'])[:15]
+        marka_text = str(row['Marka/Model'])[:45]
+        if not has_font:
+            for tr, eng in zip("şŞıİçÇöÖğĞüÜ", "sSiIcCoOgGuU"):
+                kat_text = kat_text.replace(tr, eng)
+                marka_text = marka_text.replace(tr, eng)
+
+        pdf.cell(40, 10, txt=kat_text, border=1)
+        pdf.cell(110, 10, txt=marka_text, border=1)
         pdf.cell(40, 10, txt=f"{row['Fiyat']:,.2f}", border=1, ln=True)
         
     pdf.ln(10)
@@ -589,7 +609,18 @@ if db:
                 
                 col_pdf, col_temizle = st.columns([1, 1])
                 with col_pdf:
-                    try: st.download_button("📄 PDF Teklif İndir", create_pdf(df_sepet, toplam_tutar), "Teklif.pdf", "application/pdf", use_container_width=True)
+                    # PDF İçin Müşteri İsmi / Firma Adı Çekme
+                    musteri_metni = ""
+                    try:
+                        mevcut_k = supabase.table("kullanicilar").select("firma_adi, yetkili_kisi").eq("id", st.session_state['kullanici_id']).execute().data[0]
+                        yetkili = mevcut_k.get("yetkili_kisi", "").strip()
+                        firma = mevcut_k.get("firma_adi", "").strip()
+                        if yetkili and firma: musteri_metni = f"{yetkili} ({firma})"
+                        elif yetkili: musteri_metni = yetkili
+                        elif firma: musteri_metni = firma
+                    except: pass
+
+                    try: st.download_button("📄 PDF Teklif İndir", create_pdf(df_sepet, toplam_tutar, musteri_metni), "Teklif.pdf", "application/pdf", use_container_width=True)
                     except: pass
                 with col_temizle:
                     if st.button("Tüm Sepeti Temizle", use_container_width=True): 
@@ -616,14 +647,16 @@ if db:
                 mevcut_kullanici = supabase.table("kullanicilar").select("*").eq("email", st.session_state['kullanici_email']).execute().data[0]
                 
                 with st.form("profil_guncelle_form"):
-                    st.subheader("Firma Bilgileri")
-                    f_ad = st.text_input("Firma Adı / Unvanı", value=mevcut_kullanici.get("firma_adi", ""))
+                    st.subheader("Firma ve Yetkili Bilgileri")
+                    f_yetkili = st.text_input("İsim Soyisim / Yetkili Kişi", value=mevcut_kullanici.get("yetkili_kisi", ""), placeholder="Örn: Ahmet Yılmaz")
+                    f_ad = st.text_input("Firma Adı / Unvanı", value=mevcut_kullanici.get("firma_adi", ""), placeholder="Örn: Arces Mühendislik")
                     f_tel = st.text_input("Telefon Numarası", value=mevcut_kullanici.get("telefon", ""))
                     f_adres = st.text_area("Adres", value=mevcut_kullanici.get("adres", ""))
                     f_vergi = st.text_input("Vergi Dairesi ve No", value=mevcut_kullanici.get("vergi_bilgisi", ""), placeholder="Örn: Bornova VD. / 1234567890")
                     
                     if st.form_submit_button("💾 Bilgilerimi Güncelle"):
                         supabase.table("kullanicilar").update({
+                            "yetkili_kisi": f_yetkili,
                             "firma_adi": f_ad,
                             "telefon": f_tel,
                             "adres": f_adres,
@@ -644,7 +677,6 @@ if db:
                         with st.expander(f"📁 {proje.get('proje_adi', 'İsimsiz Proje')} - {proje.get('tarih', '')[:10]} - {float(proje.get('toplam_tutar', 0)):,.2f} TL"):
                             if proje.get('sepet_detayi'):
                                 p_df = pd.DataFrame(proje['sepet_detayi'])
-                                # Ekranda gösterirken gereksiz ID sütununu gizle
                                 display_df = p_df[['Kategori', 'Marka/Model', 'Fiyat']] if 'Kategori' in p_df.columns else p_df
                                 st.dataframe(display_df, use_container_width=True)
                 else:
@@ -672,7 +704,14 @@ if db:
                 if tum_kullanicilar:
                     for usr in tum_kullanicilar:
                         durum_ikonu = "✅" if usr.get("onayli_mi") else "⏳ (Bekliyor)"
-                        with st.expander(f"{durum_ikonu} {usr['email']} - {usr.get('firma_adi', 'Firma Girilmemiş')}"):
+                        
+                        # Başlıkta Yetkili Kişi ve Firma Adını Gösterelim
+                        yetkili_goster = usr.get('yetkili_kisi', 'İsim Yok')
+                        firma_goster = usr.get('firma_adi', 'Firma Girilmemiş')
+                        
+                        with st.expander(f"{durum_ikonu} {usr['email']} - {yetkili_goster} ({firma_goster})"):
+                            st.write(f"**Yetkili Kişi:** {usr.get('yetkili_kisi', '-')}")
+                            st.write(f"**Firma Adı:** {usr.get('firma_adi', '-')}")
                             st.write(f"**Telefon:** {usr.get('telefon', '-')}")
                             st.write(f"**Adres:** {usr.get('adres', '-')}")
                             st.write(f"**Vergi Bilgisi:** {usr.get('vergi_bilgisi', '-')}")
